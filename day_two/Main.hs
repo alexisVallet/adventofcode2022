@@ -9,6 +9,8 @@ import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import Control.Exception
 
+import ParseUtils
+
 data RPSPlay = Rock | Paper | Scissors
     deriving (Eq, Ord, Show, Enum, Bounded)
 
@@ -82,10 +84,7 @@ score plays@(_, play1) =
 playOutcomeToPlay :: Map (RPSPlay, Outcome) RPSPlay
 playOutcomeToPlay = Map.fromList [((p1, outcome (p1, p2)), p2) | p1 <- [minBound..maxBound], p2 <- [minBound..maxBound]]
 
-parseOrDie :: Parsec Void Text a -> Text -> a
-parseOrDie parser contents = case runParser parser "" contents of
-    Left err -> error $ errorBundlePretty err
-    Right out -> out
+
 
 scoresForFileV1 :: Text -> [Integer]
 scoresForFileV1 contents = score <$> parseOrDie rpsStrategyParserV1 contents
