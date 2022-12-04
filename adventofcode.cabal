@@ -38,6 +38,27 @@ library
       base >=4.7 && <5
     , containers
     , megaparsec
+    , repa
+    , split
+    , text
+  default-language: Haskell2010
+
+executable aoc2021-day-25
+  main-is: Main.hs
+  other-modules:
+      Paths_adventofcode
+  hs-source-dirs:
+      aoc2021_day_25
+  default-extensions:
+      OverloadedStrings
+      ImportQualifiedPost
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-ignore-asserts -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      adventofcode
+    , base >=4.7 && <5
+    , containers
+    , megaparsec
+    , repa
     , split
     , text
   default-language: Haskell2010
@@ -57,6 +78,7 @@ executable dayfour-exe
     , base >=4.7 && <5
     , containers
     , megaparsec
+    , repa
     , split
     , text
   default-language: Haskell2010
@@ -76,6 +98,7 @@ executable dayone-exe
     , base >=4.7 && <5
     , containers
     , megaparsec
+    , repa
     , split
     , text
   default-language: Haskell2010
@@ -95,6 +118,7 @@ executable daythree-exe
     , base >=4.7 && <5
     , containers
     , megaparsec
+    , repa
     , split
     , text
   default-language: Haskell2010
@@ -114,6 +138,7 @@ executable daytwo-exe
     , base >=4.7 && <5
     , containers
     , megaparsec
+    , repa
     , split
     , text
   default-language: Haskell2010
