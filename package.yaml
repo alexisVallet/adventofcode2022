@@ -28,6 +28,7 @@ dependencies:
 - vector
 - lens
 - mtl
+- repa
 
 ghc-options:
 - -Wall
@@ -87,6 +88,15 @@ executables:
   dayfive-exe:
     main:               Main.hs
     source-dirs:        day_five
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
+  aoc2021-day-25:
+    main:               Main.hs
+    source-dirs:        aoc2021_day_25
     ghc-options:
     - -threaded
     - -rtsopts
