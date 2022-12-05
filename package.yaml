@@ -29,6 +29,7 @@ dependencies:
 - lens
 - mtl
 - repa
+- vector
 
 ghc-options:
 - -Wall
@@ -47,6 +48,7 @@ default-extensions:
 - ImportQualifiedPost
 - FlexibleContexts
 - RankNTypes
+- GADTs
 
 executables:
   dayone-exe:
@@ -97,6 +99,24 @@ executables:
   aoc2021-day-25:
     main:               Main.hs
     source-dirs:        aoc2021_day_25
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
+  aoc2020-day-25:
+    main:               Main.hs
+    source-dirs:        aoc2020_day_25
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
+  aoc2018-day-25:
+    main:               Main.hs
+    source-dirs:        aoc2018_day_25
     ghc-options:
     - -threaded
     - -rtsopts
