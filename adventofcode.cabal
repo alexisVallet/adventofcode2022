@@ -33,13 +33,42 @@ library
   default-extensions:
       OverloadedStrings
       ImportQualifiedPost
+      FlexibleContexts
+      RankNTypes
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-ignore-asserts
   build-depends:
       base >=4.7 && <5
     , containers
+    , lens
     , megaparsec
+    , mtl
     , split
     , text
+    , vector
+  default-language: Haskell2010
+
+executable dayfive-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_adventofcode
+  hs-source-dirs:
+      day_five
+  default-extensions:
+      OverloadedStrings
+      ImportQualifiedPost
+      FlexibleContexts
+      RankNTypes
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-ignore-asserts -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      adventofcode
+    , base >=4.7 && <5
+    , containers
+    , lens
+    , megaparsec
+    , mtl
+    , split
+    , text
+    , vector
   default-language: Haskell2010
 
 executable dayfour-exe
@@ -51,14 +80,19 @@ executable dayfour-exe
   default-extensions:
       OverloadedStrings
       ImportQualifiedPost
+      FlexibleContexts
+      RankNTypes
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-ignore-asserts -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       adventofcode
     , base >=4.7 && <5
     , containers
+    , lens
     , megaparsec
+    , mtl
     , split
     , text
+    , vector
   default-language: Haskell2010
 
 executable dayone-exe
@@ -70,14 +104,19 @@ executable dayone-exe
   default-extensions:
       OverloadedStrings
       ImportQualifiedPost
+      FlexibleContexts
+      RankNTypes
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-ignore-asserts -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       adventofcode
     , base >=4.7 && <5
     , containers
+    , lens
     , megaparsec
+    , mtl
     , split
     , text
+    , vector
   default-language: Haskell2010
 
 executable daythree-exe
@@ -89,14 +128,19 @@ executable daythree-exe
   default-extensions:
       OverloadedStrings
       ImportQualifiedPost
+      FlexibleContexts
+      RankNTypes
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-ignore-asserts -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       adventofcode
     , base >=4.7 && <5
     , containers
+    , lens
     , megaparsec
+    , mtl
     , split
     , text
+    , vector
   default-language: Haskell2010
 
 executable daytwo-exe
@@ -108,12 +152,17 @@ executable daytwo-exe
   default-extensions:
       OverloadedStrings
       ImportQualifiedPost
+      FlexibleContexts
+      RankNTypes
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -fno-ignore-asserts -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       adventofcode
     , base >=4.7 && <5
     , containers
+    , lens
     , megaparsec
+    , mtl
     , split
     , text
+    , vector
   default-language: Haskell2010
