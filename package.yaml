@@ -123,6 +123,15 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
+  aoc2017-day-25:
+    main:               Main.hs
+    source-dirs:        aoc2017_day_25
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
 
 library:
   source-dirs: lib
