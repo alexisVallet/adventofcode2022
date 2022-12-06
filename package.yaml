@@ -30,6 +30,8 @@ dependencies:
 - mtl
 - repa
 - vector
+- generic-lens
+
 
 ghc-options:
 - -Wall
@@ -46,9 +48,34 @@ ghc-options:
 default-extensions:
 - OverloadedStrings
 - ImportQualifiedPost
-- FlexibleContexts
-- RankNTypes
+- TemplateHaskell
+- DisambiguateRecordFields
+- DuplicateRecordFields
+- OverloadedLabels
+- DeriveGeneric
 - GADTs
+- RankNTypes
+- StandaloneDeriving
+- NoMonomorphismRestriction
+- TypeFamilies
+- FlexibleContexts
+- DataKinds
+- FlexibleInstances
+- FunctionalDependencies
+- UndecidableInstances
+- PartialTypeSignatures
+- RecordWildCards
+- DeriveDataTypeable
+- ScopedTypeVariables
+- GeneralizedNewtypeDeriving
+- TypeOperators
+- ViewPatterns
+- BangPatterns
+- DeriveFunctor
+- InstanceSigs
+- LiberalTypeSynonyms
+- ImpredicativeTypes
+- DefaultSignatures
 
 executables:
   dayone-exe:

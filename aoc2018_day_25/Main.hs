@@ -48,10 +48,10 @@ adjacencyMatToGraph adjMat = do
 
 main :: IO ()
 main = do
-    testPoints <- parseOrDie coordParser <$> TIO.readFile "aoc18_day25_test"
-    let computeConstellations p = length . components . adjacencyMatToGraph <$> adjacencyMatrix p
-    testNumConstellations <- computeConstellations testPoints
-    assert (testNumConstellations == 8) $ do
-        points <- parseOrDie coordParser <$> TIO.readFile "aoc18_day25"
-        numConstellations <- computeConstellations points
-        putStrLn $ "Solution to question 1 is: " ++ show numConstellations
+  testPoints <- parseOrDie coordParser <$> TIO.readFile "aoc18_day25_test"
+  let computeConstellations p = length . components . adjacencyMatToGraph <$> adjacencyMatrix p
+  testNumConstellations <- computeConstellations testPoints
+  assert (testNumConstellations == 8) $ do
+    points <- parseOrDie coordParser <$> TIO.readFile "aoc18_day25"
+    numConstellations <- computeConstellations points
+    putStrLn $ "Solution to question 1 is: " ++ show numConstellations
