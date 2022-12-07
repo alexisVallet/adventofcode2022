@@ -31,7 +31,8 @@ dependencies:
 - repa
 - vector
 - generic-lens
-
+- deepseq
+- criterion-measurement
 
 ghc-options:
 - -Wall
@@ -135,6 +136,15 @@ executables:
   aoc2021-day-25:
     main:               Main.hs
     source-dirs:        aoc2021_day_25
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
+  aoc2021-day-24:
+    main:               Main.hs
+    source-dirs:        aoc2021_day_24
     ghc-options:
     - -threaded
     - -rtsopts
