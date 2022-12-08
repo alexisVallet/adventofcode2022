@@ -33,6 +33,10 @@ dependencies:
 - generic-lens
 - deepseq
 - criterion-measurement
+- accelerate
+- accelerate-llvm-ptx
+- accelerate-llvm-native
+- lens-accelerate
 
 ghc-options:
 - -Wall
@@ -149,6 +153,8 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -with-rtsopts=-n2M
+    - -with-rtsopts=-A64M
     dependencies:
     - adventofcode
   aoc2020-day-25:

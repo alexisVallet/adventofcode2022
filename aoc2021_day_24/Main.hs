@@ -1,5 +1,8 @@
 module Main where
 
+import Control.Exception
+import Prelude
+import GHC.Generics
 import Data.Maybe
 import Debug.Trace
 import Data.List
@@ -11,56 +14,83 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Control.Monad.Identity
 import Data.Void
-import Data.Vector.Unboxed (Vector, (!))
-import Data.Vector.Unboxed qualified as V
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
 import Text.Megaparsec hiding (State)
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer
-import Data.Array.Repa (Array, U, D, DIM1, ix2, ix1, Z(..), (:.)(..))
-import Data.Array.Repa qualified as R
-import Data.Array.Repa.Eval qualified as R
-import Data.Array.Repa.Repr.Vector
 import Criterion.Measurement
+import Data.Array.Accelerate (Exp(..), Acc, Arrays, Elt, constant, Vector, Scalar, Z(..), (:.)(..), DIM1)
+import Data.Array.Accelerate qualified as A
+import Data.Array.Accelerate.Control.Lens
+import Data.Array.Accelerate.Control.Lens.Tuple ()
+import Data.Generics.Labels ()
+import Data.Array.Accelerate.LLVM.PTX (runN, run)
 import Control.DeepSeq
+import System.IO
 
 import ParseUtils
 
 -- An ALU program takes as input:
--- * Input number: a (batchSize, 14) shaped array representing the input number
--- * ALU state: a (batchSize, 5) shaped array representing the ALU state:
+-- * Input number: a (14,) shaped array representing the input number
+-- * ALU state: a (4,) shaped array representing the ALU state:
 --   - 0-3: registers w, x, y, z
---   - 4: index position of the next number to read in the input
 -- And outputs the updated ALU state.
-type ALUState = (Int, Int, Int, Int, Int)
-type ALUProgram = ReaderT (Vector Int) (State ALUState) ()
+-- Using tuples since that's what Accelerate supports as scalar types.
+type ALUState = (Int, Int, Int, Int)
+type ALUInput = (Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int)
+type ALUProgram = Exp ALUInput -> Exp ALUState -> Exp ALUState
 type Var = Int
 
-w, x, y, z, curInp :: Var
+w, x, y, z :: Var
 w = 0
 x = 1
 y = 2
 z = 3
-curInp = 4
 
-inp :: Var -> ALUProgram
-inp inpVar = do
-    inputDigits <- ask
-    modify $ \curState -> curState 
-        & ix inpVar .~ inputDigits ^?! ix (curState ^?! ix curInp)
-        & ix curInp +~ 1
+-- A whole lot of type machinery so we can use convenient ix lens notation to work with tuple
+-- with Accelerate (statically as far as Accelerate is concerned)
+instance (a~a2, a~a3, a~a4, a~a5, a~a6, a~a7, a~a8, a~a9, a~a10, a~a11, a~a12, a~a13, a~a14,
+          b~b2, b~b3, b~b4, b~b5, b~b6, b~b7, b~b8, b~b9, b~b10, b~b11, b~b12, b~b13, b~b14) =>
+          Each (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14) (b, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14) a b where
+    each p ~(a,b,c,d,e,f,g,h,i,j,k,l,m,n) = (,,,,,,,,,,,,,) <$> p a <*> p b <*> p c <*> p d <*> p e <*> p f <*> p g <*> p h <*> p i <*> p j <*> p k <*> p l <*> p m <*> p n
+type instance Index (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14) = Int
+type instance IxValue (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14) = a
+instance (a~a2, a~a3, a~a4, a~a5, a~a6, a~a7, a~a8, a~a9, a~a10, a~a11, a~a12, a~a13, a~a14) => Ixed (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14) where
+    ix p = elementOf each p
+
+type instance Index (Exp (a, a2, a3, a4)) = Int
+type instance IxValue (Exp (a, a2, a3, a4)) = Exp a
+instance (Elt a, a~a2, a~a3, a~a4) => Ixed (Exp (a, a2, a3, a4)) where
+    ix p = liftLens (elementOf each p :: Traversal' (Exp (a, a2, a3, a4)) (IxValue (Exp (a, a2, a3, a4))))
+
+instance (Elt a, Elt b) => Each (Exp (a,a,a,a,a,a,a,a,a,a,a,a,a,a)) (Exp (b,b,b,b,b,b,b,b,b,b,b,b,b,b)) (Exp a) (Exp b) where
+    each = liftLens (each :: Traversal (Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a, Exp a) (Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b, Exp b) (Exp a) (Exp b))
+type instance Index (Exp (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14)) = Int
+type instance IxValue (Exp (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14)) = Exp a
+instance (Elt a, a~a2, a~a3, a~a4, a~a5, a~a6, a~a7, a~a8, a~a9, a~a10, a~a11, a~a12, a~a13, a~a14) => Ixed (Exp (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14)) where
+    ix p = liftLens (elementOf each p :: Traversal' (Exp (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14)) (IxValue (Exp (a, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14))))
+
+
+inp :: Var -> Int -> ALUProgram
+inp inpVar inpLoc inputDigits curState =
+    curState 
+        & ix inpVar .~ inputDigits ^?! ix inpLoc
 
 type Operator = Var -> Either Var Int -> ALUProgram
 
-operator :: (Int -> Int -> Int) -> Operator
-operator updateOp dst src = case src of 
-    Left srcVar -> do
-        modify $ \curState -> curState & ix dst %~ \i -> updateOp i $ curState ^?! ix srcVar
-    Right srcVal -> do
-        modify $ \curState -> curState & ix dst %~ \i -> updateOp i srcVal
+operator :: (Exp Int -> Exp Int -> Exp Int) -> Operator
+operator updateOp dst src _ curState = case src of 
+    Left srcVar -> curState & ix dst %~ \i -> updateOp i $ curState ^?! ix srcVar
+    Right srcVal -> curState & ix dst %~ \i -> updateOp i (constant srcVal)
 
-parseVar :: Parsec Void Text Var
+newtype ParserState = ParserState {
+    curInpIndex :: Int
+} deriving (Generic)
+
+type Parser = ParsecT Void Text (State ParserState)
+
+parseVar :: Parser Var
 parseVar = do
     varChar <- oneOf ("wxyz" :: String)
     return $ case varChar of
@@ -70,7 +100,7 @@ parseVar = do
         'z' -> z
         _ -> error "this should never happen!"
 
-parseOp :: Text -> Operator -> Parsec Void Text ALUProgram
+parseOp :: Text -> Operator -> Parser ALUProgram
 parseOp name op = do
     string name
     hspace
@@ -79,64 +109,119 @@ parseOp name op = do
     src <- fmap Left parseVar <|> fmap Right (signed hspace decimal)
     return $ op dst src
 
-parseInp :: Parsec Void Text ALUProgram
+parseInp :: Parser ALUProgram
 parseInp = do
     string "inp"
     hspace
-    inp <$> parseVar
+    inpVar <- parseVar
+    inpIndex <- use #curInpIndex
+    #curInpIndex += 1
+    return $ inp inpVar inpIndex
 
-parseALUProgram :: Parsec Void Text ALUProgram
-parseALUProgram = fmap (foldr1 (>>)) $ many $ do 
+sequenceALU :: ALUProgram -> ALUProgram -> ALUProgram
+sequenceALU p1 p2 inputDigits curState =
+    p2 inputDigits (p1 inputDigits curState)
+
+parseALUProgram :: Parser ALUProgram
+parseALUProgram = fmap (foldr1 sequenceALU) $ many $ do 
     op <- foldr1 (<|>) $ parseInp : [parseOp name op | (name, op) <- [
         ("add", operator (+)),
         ("mul", operator (*)),
         ("div", operator div),
         ("mod", operator mod),
-        ("eql", operator (\i j -> fromEnum $ i == j))]]
+        ("eql", operator (\i j -> max 1 $ abs (i - j)))]] -- Accelerate doesn't define Enum so we have to hack out eql...
     newline
     return op
 
-runALUProgram :: (Monad m) => ALUProgram -> Array V DIM1 (Vector Int) -> m (Array U DIM1 ALUState)
-runALUProgram aluProgram inputsArr =
-    let initStates = R.fromFunction (R.extent inputsArr) (const (0, 0, 0, 0, 0))
-        finalStates = 
-            R.zipWith 
-                (\initState input -> execState (runReaderT aluProgram input) initState)
-                initStates
-                inputsArr
-    in R.computeUnboxedP finalStates
+listToALUState :: [Exp Int] -> Exp ALUInput
+listToALUState list =
+    case list of
+        [a, b, c, d, e, f, g, h, i, j, k, l, m, n] -> A.lift (a, b, c, d, e, f, g, h, i, j, k, l, m, n)
+        _ -> error "Invalid list length, need exactly 14 digits!"
 
-findLargestZ1Number :: Int -> Int -> ALUProgram -> IO (Maybe (Vector Int))
-findLargestZ1Number batchSize numDigits aluProgram = do
-    let numbersList = V.fromList <$> replicateM numDigits ([9,8..1] :: [Int])
-    doFind (R.fromList (ix1 batchSize) <$> chunksOf batchSize numbersList)
-    where 
-        isZzero :: (a, ALUState) -> Bool
-        isZzero (_, aluState) = (aluState ^?! ix z) == 0
-        doFind inputBatches = do
-            case inputBatches of
-                (curBatch:rest) -> do
-                    putStrLn $ "Computing one batch of extent: " ++ show (R.extent curBatch)
-                    itStart <- getTime
-                    batchOutputs <- runALUProgram aluProgram curBatch
-                    itEnd <- batchOutputs `R.deepSeqArray` getTime
-                    putStrLn $ "Computed batch in " ++ show (itEnd - itStart) ++ " seconds"
-                    case find isZzero (R.toList $ R.zipWith (,) curBatch batchOutputs) of
-                        Nothing -> doFind rest
-                        Just (inputNumber, _) -> return $ Just inputNumber
+generateALUInput :: Int -> Acc (Scalar Int) -> Acc (Vector ALUInput)
+generateALUInput batchSize startNumber = 
+    A.map A.snd 
+    $ A.afst 
+    $ A.filter A.fst 
+    $ A.generate (constant $ Z :. batchSize) (generateALUInput' startNumber)
+
+accDigits :: Int -> (Exp Int, [Exp Int]) -> (Exp Int, [Exp Int])
+accDigits expVal (curRemainder, curDigits) =
+    let denom = constant (10^expVal)
+    in (curRemainder `rem` denom, curRemainder `div` denom : curDigits) 
+
+generateALUInput' :: Acc (Scalar Int) -> Exp DIM1 -> Exp (Bool, ALUInput)
+generateALUInput' startingNumber idx =
+    let i = A.unindex1 idx
+        outNumber = A.the startingNumber - i
+        aluInput = listToALUState $ reverse $ snd $ foldr accDigits (outNumber, []) [0..13]
+        isAnyDigitZero :: Exp Bool
+        isAnyDigitZero = execState (forMOf_ each aluInput (\digit -> modify $ \accZero -> digit A.== 0 A.|| accZero)) (constant False)
+    in A.lift (A.not isAnyDigitZero, aluInput)
+
+runALUProgram :: ALUProgram -> Int -> Acc (Scalar Int) -> Acc (Vector ALUState)
+runALUProgram program batchSize startNumber =
+    let aluInputs = generateALUInput batchSize startNumber
+    in runWithALUInputs program batchSize aluInputs
+
+runWithALUInputs :: ALUProgram -> Int -> Acc (Vector ALUInput) -> Acc (Vector ALUState)
+runWithALUInputs program batchSize aluInputs =
+    let initStates :: Vector ALUState
+        initStates = A.fromList (Z :. batchSize) $ repeat (0, 0, 0, 0)
+        finalStates = A.zipWith program aluInputs (A.use initStates)
+    in finalStates
+
+runALUProgramAndFindZeros' :: ALUProgram -> Int -> Acc (Scalar Int) -> Acc (Vector ALUInput, Scalar Int)
+runALUProgramAndFindZeros' program batchSize startNumber =
+    let aluInputs = generateALUInput batchSize startNumber
+        finalStates = runWithALUInputs program batchSize aluInputs
+        zeroFinalStates = A.map (\aluState -> aluState ^?! ix z A.== constant 0) finalStates
+        zeroInputs = A.compact zeroFinalStates aluInputs
+    in zeroInputs
+
+findLargestZ1Number :: Int -> ALUProgram -> IO (Maybe (Vector ALUInput))
+findLargestZ1Number batchSize aluProgram = do
+    let aluFunctionR = runN $ runALUProgramAndFindZeros' aluProgram batchSize
+        startFrom = 99999999999999
+        totalNumIter = (startFrom - 11111111111111) `div` batchSize
+        doFind mPrevTime mMovingAvg inputStartNumbers = do
+            case inputStartNumbers of
+                ((i, curStartNumber):rest) -> do
+                    let batchOutputs = fst $ aluFunctionR (A.fromList Z [curStartNumber])
+                    endTime <- batchOutputs `deepseq` getTime
+                    newMovingAvg <- case (mPrevTime, mMovingAvg) of
+                        (Nothing, _) -> return Nothing
+                        (Just prevTime, Nothing) -> return $ Just (endTime - prevTime)
+                        (Just prevTime, Just movingAvg) -> do
+                            let updatedItTime = 0.1 * (endTime - prevTime) + 0.9 * movingAvg
+                            putStrLn $ "ETA: " ++ show (fromIntegral (totalNumIter - i) * updatedItTime) ++ " seconds"                            
+                            return $ Just updatedItTime
+                    if A.arraySize batchOutputs > 0 then
+                        return $ Just batchOutputs
+                    else doFind (Just endTime) newMovingAvg rest
                 [] -> return Nothing
+    doFind Nothing Nothing $ zip [1..] ([startFrom,startFrom-batchSize..11111111111111] :: [Int])
+
+
+parseALUprogramOrDie :: Text -> ALUProgram
+parseALUprogramOrDie input =
+    case evalState (runParserT parseALUProgram "" input) $ ParserState 0 of
+        Left err -> error $ errorBundlePretty err
+        Right program -> program
 
 main :: IO ()
 main = do
-    initializeTime
-    testAluProgram <- parseOrDie parseALUProgram <$> TIO.readFile "aoc21_day24_test"
-    let testInputsArr = R.fromList (ix1 1) [V.singleton 15]
-    testOutputs <- head . R.toList <$> runALUProgram testAluProgram testInputsArr
-    assert (testOutputs == (1, 1, 1, 1, 1)) $ do
-        aluProgram <- parseOrDie parseALUProgram <$> TIO.readFile "aoc21_day24"
-        let checkInputsArr = R.fromList (ix1 1) [V.fromList $ replicate 14 9]
-        checkOutput <- runALUProgram aluProgram checkInputsArr
-        putStrLn $ "Check output: " ++ show checkOutput
-        largestZ1Number <- findLargestZ1Number (1024^2) 14 aluProgram
-        putStrLn $ "Question 1 answer is: " ++ show largestZ1Number
-
+    testAluProgram <- parseALUprogramOrDie <$> TIO.readFile "aoc21_day24_test"
+    let testInput1 = A.use $ A.fromList Z [99999999994999]
+        actualGenerateOut = run (generateALUInput 1 testInput1)
+    assert (A.toList actualGenerateOut == [(9,9,9,9,9,9,9,9,9,9,4,9,9,9)]) $ do
+        let actualFinalState1 = run (runALUProgram testAluProgram 1 testInput1)
+        assert (A.toList actualFinalState1 == [(9, 0, 0, 0)]) $ do
+            let actualFinalState2 = run (runALUProgram testAluProgram 1 $ A.use $ A.fromList Z [99999999996999])
+            assert (A.toList actualFinalState2 == [(9, 0, 0, 2)]) $ do
+                actualLargestZ1Number <- findLargestZ1Number 11111111 testAluProgram
+                assert ((head . A.toList <$> actualLargestZ1Number) == Just (9,9,9,9,9,9,9,9,9,9,8,9,9,9)) $ do
+                    aluProgram <- parseALUprogramOrDie <$> TIO.readFile "aoc21_day24"
+                    largestNumber <- findLargestZ1Number 11111111 aluProgram
+                    putStrLn $ "Question 1 answer is: " ++ show (head . A.toList <$> largestNumber)
