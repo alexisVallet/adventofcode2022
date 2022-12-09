@@ -37,6 +37,7 @@ dependencies:
 - accelerate-llvm-ptx
 - accelerate-llvm-native
 - lens-accelerate
+- pretty-simple
 - cmdargs
 
 ghc-options:
@@ -84,7 +85,7 @@ default-extensions:
 - DefaultSignatures
 
 executables:
-  dayone-exe:
+  aoc2022-day-01:
     main:                Main.hs
     source-dirs:         aoc2022_day_01
     ghc-options:
@@ -93,7 +94,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
-  daytwo-exe:
+  aoc2022-day-02:
     main:               Main.hs
     source-dirs:        aoc2022_day_02
     ghc-options:
@@ -102,7 +103,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
-  daythree-exe:
+  aoc2022-day-03:
     main:               Main.hs
     source-dirs:        aoc2022_day_03
     ghc-options:
@@ -111,7 +112,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
-  dayfour-exe:
+  aoc2022-day-04:
     main:               Main.hs
     source-dirs:        aoc2022_day_04
     ghc-options:
@@ -120,7 +121,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
-  dayfive-exe:
+  aoc2022-day-05:
     main:               Main.hs
     source-dirs:        aoc2022_day_05
     ghc-options:
@@ -129,9 +130,18 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
-  day6:
+  aoc2022-day-06:
     main:               Main.hs
     source-dirs:        aoc2022_day_06
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
+  aoc2022-day-07:
+    main:               Main.hs
+    source-dirs:        aoc2022_day_07
     ghc-options:
     - -threaded
     - -rtsopts
