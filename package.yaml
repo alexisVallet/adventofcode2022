@@ -37,6 +37,7 @@ dependencies:
 - accelerate-llvm-ptx
 - accelerate-llvm-native
 - lens-accelerate
+- cmdargs
 
 ghc-options:
 - -Wall
