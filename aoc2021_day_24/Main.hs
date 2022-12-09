@@ -1,5 +1,7 @@
 module Main where
 
+import Data.Char
+import Numeric
 import Control.Exception
 import Prelude
 import GHC.Generics
@@ -129,7 +131,7 @@ parseALUProgram = fmap (foldr1 sequenceALU) $ many $ do
         ("mul", operator (*)),
         ("div", operator div),
         ("mod", operator mod),
-        ("eql", operator (\i j -> max 1 $ abs (i - j)))]] -- Accelerate doesn't define Enum so we have to hack out eql...
+        ("eql", operator (\i j -> 1 - min 1 (abs (i - j))))]] -- Accelerate doesn't define Enum so we have to hack out eql...
     newline
     return op
 
@@ -141,24 +143,19 @@ listToALUState list =
 
 generateALUInput :: Int -> Acc (Scalar Int) -> Acc (Vector ALUInput)
 generateALUInput batchSize startNumber = 
-    A.map A.snd 
-    $ A.afst 
-    $ A.filter A.fst 
-    $ A.generate (constant $ Z :. batchSize) (generateALUInput' startNumber)
+    A.generate (constant $ Z :. batchSize) (generateALUInput' startNumber)
 
 accDigits :: Int -> (Exp Int, [Exp Int]) -> (Exp Int, [Exp Int])
 accDigits expVal (curRemainder, curDigits) =
-    let denom = constant (10^expVal)
-    in (curRemainder `rem` denom, curRemainder `div` denom : curDigits) 
+    let denom = constant (9^expVal)
+    in (curRemainder `rem` denom, (curRemainder `div` denom) + 1 : curDigits) 
 
-generateALUInput' :: Acc (Scalar Int) -> Exp DIM1 -> Exp (Bool, ALUInput)
+generateALUInput' :: Acc (Scalar Int) -> Exp DIM1 -> Exp ALUInput
 generateALUInput' startingNumber idx =
     let i = A.unindex1 idx
         outNumber = A.the startingNumber - i
         aluInput = listToALUState $ reverse $ snd $ foldr accDigits (outNumber, []) [0..13]
-        isAnyDigitZero :: Exp Bool
-        isAnyDigitZero = execState (forMOf_ each aluInput (\digit -> modify $ \accZero -> digit A.== 0 A.|| accZero)) (constant False)
-    in A.lift (A.not isAnyDigitZero, aluInput)
+    in aluInput
 
 runALUProgram :: ALUProgram -> Int -> Acc (Scalar Int) -> Acc (Vector ALUState)
 runALUProgram program batchSize startNumber =
@@ -180,11 +177,14 @@ runALUProgramAndFindZeros' program batchSize startNumber =
         zeroInputs = A.compact zeroFinalStates aluInputs
     in zeroInputs
 
+parseNonary :: String -> Int
+parseNonary = fst . head . readInt 9 (`elem` ['1'..'9']) (\c -> digitToInt c - 1)
+
 findLargestZ1Number :: Int -> ALUProgram -> IO (Maybe (Vector ALUInput))
 findLargestZ1Number batchSize aluProgram = do
     let aluFunctionR = runN $ runALUProgramAndFindZeros' aluProgram batchSize
-        startFrom = 99999999999999
-        totalNumIter = (startFrom - 11111111111111) `div` batchSize
+        startFrom = parseNonary "99999999999999"
+        totalNumIter = startFrom `div` batchSize
         doFind mPrevTime mMovingAvg inputStartNumbers = do
             case inputStartNumbers of
                 ((i, curStartNumber):rest) -> do
@@ -194,14 +194,16 @@ findLargestZ1Number batchSize aluProgram = do
                         (Nothing, _) -> return Nothing
                         (Just prevTime, Nothing) -> return $ Just (endTime - prevTime)
                         (Just prevTime, Just movingAvg) -> do
-                            let updatedItTime = 0.1 * (endTime - prevTime) + 0.9 * movingAvg
-                            putStrLn $ "ETA: " ++ show (fromIntegral (totalNumIter - i) * updatedItTime) ++ " seconds"                            
+                            let updatedItTime = 0.01 * (endTime - prevTime) + 0.99 * movingAvg
+                            when (i `mod` 1000 == 0) $ do 
+                                putStrLn $ "Iteration " ++ show i ++ " out of " ++ show totalNumIter
+                                putStrLn $ "ETA: " ++ show (fromIntegral (totalNumIter - i) * updatedItTime) ++ " seconds"                            
                             return $ Just updatedItTime
                     if A.arraySize batchOutputs > 0 then
                         return $ Just batchOutputs
                     else doFind (Just endTime) newMovingAvg rest
                 [] -> return Nothing
-    doFind Nothing Nothing $ zip [1..] ([startFrom,startFrom-batchSize..11111111111111] :: [Int])
+    doFind Nothing Nothing $ zip [1..] ([startFrom,startFrom-batchSize..0] :: [Int])
 
 
 parseALUprogramOrDie :: Text -> ALUProgram
@@ -212,16 +214,28 @@ parseALUprogramOrDie input =
 
 main :: IO ()
 main = do
+    hSetBuffering stdin LineBuffering
+    hSetBuffering stdout LineBuffering
     testAluProgram <- parseALUprogramOrDie <$> TIO.readFile "aoc21_day24_test"
-    let testInput1 = A.use $ A.fromList Z [99999999994999]
+    let testInput1 = A.use $ A.fromList Z [parseNonary "99999999994999"]
         actualGenerateOut = run (generateALUInput 1 testInput1)
     assert (A.toList actualGenerateOut == [(9,9,9,9,9,9,9,9,9,9,4,9,9,9)]) $ do
         let actualFinalState1 = run (runALUProgram testAluProgram 1 testInput1)
         assert (A.toList actualFinalState1 == [(9, 0, 0, 0)]) $ do
-            let actualFinalState2 = run (runALUProgram testAluProgram 1 $ A.use $ A.fromList Z [99999999996999])
+            let actualFinalState2 = run (runALUProgram testAluProgram 1 $ A.use $ A.fromList Z [parseNonary "99999999996999"])
             assert (A.toList actualFinalState2 == [(9, 0, 0, 2)]) $ do
-                actualLargestZ1Number <- findLargestZ1Number 11111111 testAluProgram
+                actualLargestZ1Number <- findLargestZ1Number 10000000 testAluProgram
                 assert ((head . A.toList <$> actualLargestZ1Number) == Just (9,9,9,9,9,9,9,9,9,9,8,9,9,9)) $ do
-                    aluProgram <- parseALUprogramOrDie <$> TIO.readFile "aoc21_day24"
-                    largestNumber <- findLargestZ1Number 11111111 aluProgram
-                    putStrLn $ "Question 1 answer is: " ++ show (head . A.toList <$> largestNumber)
+                    testAluProgram2 <- parseALUprogramOrDie <$> TIO.readFile "aoc21_day24_test4"
+                    let actualFinalState3 = run (runALUProgram testAluProgram2 1 $ A.use $ A.fromList Z [parseNonary "26111111111111"])
+                    print actualFinalState3
+                    assert (A.toList actualFinalState3 == [(0, 6, 0, 1)]) $ do
+                        let actualFinalState4 = run (runALUProgram testAluProgram2 1 $ A.use $ A.fromList Z [parseNonary "27111111111111"])
+                        assert (A.toList actualFinalState4 == [(0, 7, 0, 0)]) $ do
+                            aluProgram <- parseALUprogramOrDie <$> TIO.readFile "aoc21_day24"
+                            testAluProgram3 <- parseALUprogramOrDie <$> TIO.readFile "aoc21_day24_test2"
+                            let actualFinalState5 = run (runALUProgram testAluProgram3 1 $ A.use $ A.fromList Z [parseNonary "49111111111111"])
+                            print actualFinalState5
+                            assert (head (A.toList actualFinalState5) ^?! ix z == 485) $ do
+                                largestNumber <- findLargestZ1Number 10000000 aluProgram
+                                putStrLn $ "Question 1 answer is: " ++ show (head . A.toList <$> largestNumber)
