@@ -86,7 +86,7 @@ default-extensions:
 executables:
   dayone-exe:
     main:                Main.hs
-    source-dirs:         day_one
+    source-dirs:         aoc2022_day_01
     ghc-options:
     - -threaded
     - -rtsopts
@@ -95,7 +95,7 @@ executables:
     - adventofcode
   daytwo-exe:
     main:               Main.hs
-    source-dirs:        day_two
+    source-dirs:        aoc2022_day_02
     ghc-options:
     - -threaded
     - -rtsopts
@@ -104,7 +104,7 @@ executables:
     - adventofcode
   daythree-exe:
     main:               Main.hs
-    source-dirs:        day_three
+    source-dirs:        aoc2022_day_03
     ghc-options:
     - -threaded
     - -rtsopts
@@ -113,7 +113,7 @@ executables:
     - adventofcode
   dayfour-exe:
     main:               Main.hs
-    source-dirs:        day_four
+    source-dirs:        aoc2022_day_04
     ghc-options:
     - -threaded
     - -rtsopts
@@ -122,7 +122,7 @@ executables:
     - adventofcode
   dayfive-exe:
     main:               Main.hs
-    source-dirs:        day_five
+    source-dirs:        aoc2022_day_05
     ghc-options:
     - -threaded
     - -rtsopts
@@ -131,7 +131,7 @@ executables:
     - adventofcode
   day6:
     main:               Main.hs
-    source-dirs:        day6
+    source-dirs:        aoc2022_day_06
     ghc-options:
     - -threaded
     - -rtsopts
