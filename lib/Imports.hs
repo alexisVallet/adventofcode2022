@@ -1,8 +1,9 @@
-{- 
+{-
 Contains imports of external dependencies common to all exercises.
 Useful to avoid repeating a huge block of imports every time.
 -}
-module Imports (
+module Imports
+  ( module Data.Bifunctor,
     module Control.DeepSeq,
     module Control.Exception,
     module Control.Lens,
@@ -29,27 +30,29 @@ module Imports (
     module Text.Megaparsec,
     module Text.Megaparsec.Char,
     module Text.Megaparsec.Char.Lexer,
-    module Text.Pretty.Simple
-) where
+    module Text.Pretty.Simple,
+  )
+where
 
 import Control.DeepSeq
 import Control.Exception hiding (try)
-import Control.Lens hiding (uncons, noneOf)
+import Control.Lens hiding (noneOf, uncons)
 import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Criterion.Measurement
+import Data.Bifunctor
 import Data.Char
+import Data.Either
 import Data.Generics.Labels ()
 import Data.Graph
-import Data.Either
-import Data.List
-import Data.List.Split hiding (oneOf, chunk, endBy, sepBy)
-import Data.Map.Strict (Map)
 import Data.IntMap.Strict (IntMap)
-import Data.Set (Set)
+import Data.List
+import Data.List.Split hiding (chunk, endBy, oneOf, sepBy)
+import Data.Map.Strict (Map)
 import Data.Maybe
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Void
 import Debug.Trace

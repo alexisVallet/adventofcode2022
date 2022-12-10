@@ -39,6 +39,7 @@ dependencies:
 - lens-accelerate
 - pretty-simple
 - cmdargs
+- hmatrix
 
 ghc-options:
 - -Wall
@@ -151,6 +152,15 @@ executables:
   aoc2022-day-08:
     main:               Main.hs
     source-dirs:        aoc2022_day_08
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
+  aoc2022-day-09:
+    main:               Main.hs
+    source-dirs:        aoc2022_day_09
     ghc-options:
     - -threaded
     - -rtsopts
