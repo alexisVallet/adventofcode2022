@@ -2,14 +2,10 @@ module Main where
 
 import Control.Exception
 import Data.List.Split
-import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Text.IO qualified as TIO
-import Data.Void
+import Imports
 import ParseUtils
-import Text.Megaparsec hiding (chunk)
-import Text.Megaparsec.Char
 
 ruckasckToCompartments :: [Char] -> (Set Char, Set Char)
 ruckasckToCompartments rucksack =

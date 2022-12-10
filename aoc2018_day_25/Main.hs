@@ -1,17 +1,11 @@
 module Main where
 
-import Control.Exception
 import Data.Array.Repa (All (..), Array, DIM2, U, Z (..), ix2, (-^), (:.) (..))
 import Data.Array.Repa qualified as R
-import Data.Graph
-import Data.Text (Text)
 import Data.Text.IO qualified as TIO
 import Data.Vector.Unboxed qualified as VU
-import Data.Void
+import Imports
 import ParseUtils
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer hiding (space)
 
 coordParser :: Parsec Void Text (Array U DIM2 Int)
 coordParser = do

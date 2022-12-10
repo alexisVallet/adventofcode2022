@@ -1,12 +1,8 @@
 module Main (main) where
 
-import Data.List
-import Data.Text (Text)
-import qualified Data.Text.IO as TIO
+import Data.Text.IO qualified as TIO
 import Data.Void
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer
+import Imports
 
 inputParser :: Parsec Void Text [[Int]]
 inputParser = many numberBlock

@@ -1,21 +1,9 @@
 module Main where
 
-import Control.Exception
-import Control.Lens
-import Control.Monad
-import Control.Monad.State.Strict
-import Data.Generics.Labels ()
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe
-import Data.Text (Text)
 import Data.Text.IO qualified as TIO
-import Data.Void
-import GHC.Generics
+import Imports
 import ParseUtils
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer
 
 data RuleSet = RuleSet
   { curState :: Char,
@@ -46,39 +34,40 @@ ruleSetParser = do
   string "Perform a diagnostic checksum after "
   numSteps <- decimal
   skipLines 1
-  stateRules <- fmap Map.fromList $ many $ do
-    skipLines 1
-    string "In state "
-    state <- letterChar
-    skipLines 1
-    let ruleParser = do
-          skipLines 1
-          string "    - Write the value "
-          writeValue <- toEnum . read . (: []) <$> binDigitChar
-          skipLines 1
-          string "    - Move one slot to the "
-          moveDirection <-
-            (string "right" >> return (Right ()))
-              <|> (string "left" >> return (Left ()))
-          skipLines 1
-          string "    - Continue with state "
-          nextState <- letterChar
-          skipLines 1
-          return $
-            RuleCase
-              { writeValue = writeValue,
-                moveDirection = moveDirection,
-                nextState = nextState
-              }
-    zeroCase <- ruleParser
-    oneCase <- ruleParser
-    return
-      ( state,
-        StateRule
-          { zeroCase = zeroCase,
-            oneCase = oneCase
-          }
-      )
+  stateRules <- fmap Map.fromList $
+    many $ do
+      skipLines 1
+      string "In state "
+      state <- letterChar
+      skipLines 1
+      let ruleParser = do
+            skipLines 1
+            string "    - Write the value "
+            writeValue <- toEnum . read . (: []) <$> binDigitChar
+            skipLines 1
+            string "    - Move one slot to the "
+            moveDirection <-
+              (string "right" >> return (Right ()))
+                <|> (string "left" >> return (Left ()))
+            skipLines 1
+            string "    - Continue with state "
+            nextState <- letterChar
+            skipLines 1
+            return $
+              RuleCase
+                { writeValue = writeValue,
+                  moveDirection = moveDirection,
+                  nextState = nextState
+                }
+      zeroCase <- ruleParser
+      oneCase <- ruleParser
+      return
+        ( state,
+          StateRule
+            { zeroCase = zeroCase,
+              oneCase = oneCase
+            }
+        )
   let ruleSet =
         RuleSet
           { curState = initialState,

@@ -1,36 +1,12 @@
 module Main where
 
-import Control.DeepSeq
-import Control.Exception
-import Control.Lens
-import Control.Monad
-import Control.Monad.Identity
-import Control.Monad.Reader
-import Control.Monad.State.Strict
-import Criterion.Measurement
 import Data.Array.Accelerate (Acc, Arrays, DIM1, Elt, Exp (..), Scalar, Vector, Z (..), constant, (:.) (..))
 import Data.Array.Accelerate qualified as A
 import Data.Array.Accelerate.Control.Lens
 import Data.Array.Accelerate.Control.Lens.Tuple ()
 import Data.Array.Accelerate.LLVM.PTX (run, runN)
-import Data.Char
-import Data.Generics.Labels ()
-import Data.List
-import Data.List.Split hiding (oneOf)
-import Data.Maybe
-import Data.Text (Text)
 import Data.Text.IO qualified as TIO
-import Data.Void
-import Debug.Trace
-import GHC.Generics
-import Numeric
-import ParseUtils
-import System.Console.CmdArgs.Implicit (Data, Typeable, cmdArgs)
-import System.IO
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer
-import Prelude
+import Imports
 
 -- An ALU program takes as input:
 

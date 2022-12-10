@@ -1,19 +1,10 @@
 module Main where
 
-import Control.Exception (assert)
-import Control.Lens
-import Control.Monad
-import Control.Monad.State.Strict
-import Data.List (transpose)
-import Data.Text (Text)
 import Data.Text.IO qualified as TIO
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Data.Void
+import Imports
 import ParseUtils
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer
 
 -- A crate is represented as a list ordered from top to bottom.
 type CrateStacks = Vector [Char]
@@ -35,10 +26,11 @@ cratesParseAndMove crateOrder = do
         emptyCellParser = do
           replicateM_ 3 $ char ' '
           return Nothing
-    cratesOrEmpty <- some $ try $ do
-      out <- emptyCellParser <|> crateParser
-      optional . try $ char ' '
-      return out
+    cratesOrEmpty <- some $
+      try $ do
+        out <- emptyCellParser <|> crateParser
+        optional . try $ char ' '
+        return out
     newline
     return $ V.fromList cratesOrEmpty
   when (null stackRows) $ fail "No rows could be paresed!"
@@ -55,15 +47,17 @@ cratesParseAndMove crateOrder = do
   -- We don't actually need the next two lines
   replicateM_ 2 $ manyTill anySingle newline
   -- Then we parse and apply the move actions as we go, because why not.
-  fmap snd $ flip runStateT crateStacks $ many $ do
-    string "move "
-    numCrates <- decimal
-    string " from "
-    src <- decimal
-    string " to "
-    dst <- decimal
-    moveCrates crateOrder numCrates (src - 1) (dst - 1)
-    newline
+  fmap snd $
+    flip runStateT crateStacks $
+      many $ do
+        string "move "
+        numCrates <- decimal
+        string " from "
+        src <- decimal
+        string " to "
+        dst <- decimal
+        moveCrates crateOrder numCrates (src - 1) (dst - 1)
+        newline
 
 topCrates :: CrateStacks -> [Char]
 topCrates = V.toList . fmap head

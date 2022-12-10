@@ -1,9 +1,7 @@
 module Main where
 
-import Control.Exception
-import Data.List
-import Data.List.Split (divvy)
 import Data.Set qualified as Set
+import Imports
 
 findFirstUniqueSubseqIndex :: (Ord a) => Int -> [a] -> Maybe Int
 findFirstUniqueSubseqIndex chunkSize as =

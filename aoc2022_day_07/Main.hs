@@ -2,26 +2,10 @@
 
 module Main where
 
-import Control.Exception
-import Control.Lens hiding (uncons)
-import Control.Monad.State.Strict
-import Data.Either
-import Data.Generics.Labels ()
-import Data.Generics.Product.Fields (HasField)
-import Data.List
-import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe
-import Data.Text (Text)
 import Data.Text.IO qualified as TIO
-import Data.Void
-import Debug.Trace
-import GHC.Generics
+import Imports
 import ParseUtils
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer
-import Text.Pretty.Simple (pPrint)
 
 type Directory = Map String DirOrFile
 

@@ -1,14 +1,10 @@
 module Main (main) where
 
-import Control.Exception
-import Data.Map (Map, (!))
-import qualified Data.Map as Map
-import Data.Text (Text)
-import qualified Data.Text.IO as TIO
-import Data.Void
+import Data.Map ((!))
+import Data.Map qualified as Map
+import Data.Text.IO qualified as TIO
+import Imports
 import ParseUtils
-import Text.Megaparsec
-import Text.Megaparsec.Char
 
 data RPSPlay = Rock | Paper | Scissors
   deriving (Eq, Ord, Show, Enum, Bounded)

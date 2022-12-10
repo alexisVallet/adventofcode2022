@@ -1,19 +1,14 @@
 module Main where
 
-import Control.Exception
-import Control.Monad
 import Data.Array.Repa (Array, DIM2, Z (..), ix2, (:.) (..))
 import Data.Array.Repa qualified as R
 import Data.Array.Repa.Eval qualified as R
 import Data.Array.Repa.Repr.Vector (V)
 import Data.Array.Repa.Repr.Vector qualified as R
-import Data.List.Split (chunksOf)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
-import Data.Void
+import Imports
 import ParseUtils
-import Text.Megaparsec
-import Text.Megaparsec.Char
 
 data Tile = R | D | E
   deriving (Eq, Ord, Show)
