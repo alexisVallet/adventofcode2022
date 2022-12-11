@@ -3,7 +3,8 @@ Contains imports of external dependencies common to all exercises.
 Useful to avoid repeating a huge block of imports every time.
 -}
 module Imports
-  ( module Data.Bifunctor,
+  ( module Data.Sequence,
+    module Data.Bifunctor,
     module Control.DeepSeq,
     module Control.Exception,
     module Control.Lens,
@@ -51,6 +52,7 @@ import Data.IntMap.Strict (IntMap)
 import Data.List
 import Data.List.Split hiding (chunk, endBy, oneOf, sepBy)
 import Data.Map.Strict (Map)
+import Data.Sequence (Seq)
 import Data.Maybe
 import Data.Set (Set)
 import Data.Text (Text)

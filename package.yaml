@@ -167,6 +167,15 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
+  aoc2022-day-10:
+    main:               Main.hs
+    source-dirs:        aoc2022_day_10
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
   aoc2021-day-25:
     main:               Main.hs
     source-dirs:        aoc2021_day_25
