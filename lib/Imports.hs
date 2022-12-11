@@ -37,9 +37,10 @@ where
 
 import Control.DeepSeq
 import Control.Exception hiding (try)
-import Control.Lens hiding (noneOf, uncons)
+import Control.Lens hiding (noneOf, uncons, (<|), (|>))
 import Control.Monad
 import Control.Monad.Identity
+import Data.Foldable
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Criterion.Measurement
@@ -52,7 +53,7 @@ import Data.IntMap.Strict (IntMap)
 import Data.List
 import Data.List.Split hiding (chunk, endBy, oneOf, sepBy)
 import Data.Map.Strict (Map)
-import Data.Sequence (Seq)
+import Data.Sequence (Seq, (<|), (|>))
 import Data.Maybe
 import Data.Set (Set)
 import Data.Text (Text)
