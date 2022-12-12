@@ -56,13 +56,10 @@ terrainParser = do
       endNode = fst . fromJust . find (\(_, (nt, _)) -> nt == End) $ nodeList
   return (mkGraph nodeList edgeList, startNode, endNode)
 
-shortestPathLength :: Terrain -> Node -> Node -> Maybe Int
-shortestPathLength g start end = spLength start end g
-
 shortestZeroStartPathLengthTo :: Terrain -> Node -> Maybe Int
 shortestZeroStartPathLengthTo g end =
   let zeroElevationNodes = fst <$> filter (\(_, (_, e)) -> e == 0) (labNodes g)
-      spLengths = catMaybes $ (\n -> shortestPathLength g n end) <$> zeroElevationNodes
+      spLengths = catMaybes $ (\n -> spLength n end g) <$> zeroElevationNodes
    in case spLengths of
         [] -> Nothing
         _ -> Just $ minimum spLengths
@@ -70,15 +67,13 @@ shortestZeroStartPathLengthTo g end =
 main :: IO ()
 main = do
   (testGraph, testStart, testEnd) <- parseOrDie terrainParser <$> TIO.readFile "aoc22_day12_test"
-  let actualPathLength1 = shortestPathLength testGraph testStart testEnd
+  let actualPathLength1 = spLength testStart testEnd testGraph
       actualPathLength2 = shortestZeroStartPathLengthTo testGraph testEnd
-  print actualPathLength1
-  print actualPathLength2
   assert
     ( actualPathLength1 == Just 31
         && actualPathLength2 == Just 29
     )
     $ do
       (graph, start, end) <- parseOrDie terrainParser <$> TIO.readFile "aoc22_day12_input"
-      putStrLn $ "Question 1 answer is: " ++ show (shortestPathLength graph start end)
+      putStrLn $ "Question 1 answer is: " ++ show (spLength start end graph)
       putStrLn $ "Question 2 answer is: " ++ show (shortestZeroStartPathLengthTo graph end)
