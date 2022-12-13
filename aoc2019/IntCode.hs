@@ -2,6 +2,7 @@ module IntCode where
 
 import Imports
 
+import Control.Monad.Coroutine
 import Data.Vector.Unboxed hiding ((++), find)
 import Data.Vector.Unboxed qualified as V
 
