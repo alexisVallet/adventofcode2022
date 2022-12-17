@@ -3,6 +3,8 @@ module Main where
 import Control.Parallel.Strategies
 import Control.Monad.Coroutine
 import Control.Monad.Coroutine.SuspensionFunctors
+import Control.Monad.Coroutine.Nested
+import Data.Functor.Sum
 import Data.Graph.Inductive
 import Data.Graph.Inductive qualified as G
 import Data.Map.Strict qualified as Map
@@ -63,29 +65,50 @@ initState tunnel spLengthMap nonZeroNodes = SimState {
     tunnel=tunnel, spLengthMap=spLengthMap, curNode=startNode tunnel,
     curFlowRate=0, unexplored=Set.fromList nonZeroNodes}
 
--- Coroutine requesting the next node to move to, or Nothing to stay at the
--- current node and bring an early end to the simulation.
-type SimMonad = Coroutine (Request (Set Node) (Maybe Node)) (State SimState)
-
 instance (Functor s', MonadState s m) => MonadState s (Coroutine s' m) where
     state f = lift (state f)
 
+-- Coroutine requesting the next node to move to, or Nothing to stay at the
+-- current node and bring an early end to the simulation.
+type SimMonad = Coroutine (
+    Request 
+    (Set Node)  -- set of nodes to pick the next node to explore 
+    (Maybe Node)  -- chosen node, Nothing to stop here until the end of time
+    ) (State SimState)
 
-simulatePressureRelease :: SimMonad Int
-simulatePressureRelease = do
+type PlayerMonad = 
+    Coroutine (
+        Sum 
+        (Request (Set Node) (Maybe Node)) -- Same as SimMonad
+        (Request 
+        (Node, Int) -- Next node the player intends to explore and current time remaining
+        (Set Node)  -- Set of unexplored nodes after the other player caught up
+        )
+    ) (State SimState)
+
+scheduleSingle :: PlayerMonad a -> SimMonad a
+scheduleSingle = pogoStickNested handleRight
+    where 
+        handleRight (Request (curNode, _) nextStep) = do
+            -- Single player simply updates the set of unexplored nodes
+            -- and return it, since no synchronization is necessary.
+            unexplored <- #unexplored <%= Set.delete curNode
+            nextStep unexplored
+
+singlePressureRelease :: PlayerMonad Int
+singlePressureRelease = do
     doSimulate 30
     where
         doSimulate 0 = return 0
         doSimulate minutesRemaining = do
             curNode <- use #curNode
-            #unexplored %= Set.delete curNode
+            unexplored <- mapSuspension InR $ request (curNode, minutesRemaining)
             valveFlowRate <- flowRate . fromJust . flip lab curNode <$> use (#tunnel . #graph)
             curFlowRate <- use #curFlowRate
             let (nextFlowRate, minutesThere) =
                     if valveFlowRate == 0 then (curFlowRate, 0) else
                         (curFlowRate + valveFlowRate, 1)
-            unexplored <- use #unexplored
-            mNextNode <- request unexplored
+            mNextNode <- mapSuspension InL $ request unexplored
             let terminate = return $ curFlowRate + nextFlowRate * (minutesRemaining - 1)
             case mNextNode of
                 Nothing -> terminate
@@ -102,6 +125,8 @@ simulatePressureRelease = do
                         rest <- doSimulate newMinutesRemaining
                         return $ minutesThere * curFlowRate + actuallyMovingMinutes * nextFlowRate + rest
 
+simulatePressureRelease :: (PlayerMonad Int -> SimMonad b) -> SimMonad b
+simulatePressureRelease scheduler = scheduler singlePressureRelease
 
 runWithPath :: [Node] -> SimMonad a -> State SimState a
 runWithPath path sim = do
@@ -149,7 +174,7 @@ searchMaxPressureRelease tunnel =
     let nodes = nonZeroNodes tunnel
         spLengthMap = allPairsShortestPath tunnel nodes
     in foldl (\(force -> !curMax) pressureVal -> max curMax pressureVal) 0
-        $ fst <$> searchAllPaths (initState tunnel spLengthMap nodes) simulatePressureRelease
+        $ fst <$> searchAllPaths (initState tunnel spLengthMap nodes) (simulatePressureRelease scheduleSingle)
 
 maxPressureRelease :: TunnelGraph -> IO Int
 maxPressureRelease tunnelGraph = do
@@ -157,7 +182,7 @@ maxPressureRelease tunnelGraph = do
         spLengthMap = allPairsShortestPath tunnelGraph nodes
         accMax (force -> !curMax) (i, path) = do
             when (i `mod` 100000 == 0) $ putStrLn $ "Iteration " ++ show i
-            let release = evalState (runWithPath path simulatePressureRelease) (initState tunnelGraph spLengthMap nodes)
+            let release = evalState (runWithPath path (simulatePressureRelease scheduleSingle)) (initState tunnelGraph spLengthMap nodes)
             return $ max curMax release
         allPaths = validPaths spLengthMap (startNode tunnelGraph) nodes
     putStrLn $ allPaths `deepseq` "Found " ++ show (length allPaths) ++ " paths"
@@ -170,7 +195,7 @@ main = do
         spLengthMap = allPairsShortestPath testGraph nodes
         strToName [c1, c2] = (c1, c2)
         testPath = fmap ((nameToNode Map.!) . strToName) ["BB", "CC"]
-        actualTestRelease = evalState (runWithPath testPath simulatePressureRelease) (initState testGraph spLengthMap nodes)
+        actualTestRelease = evalState (runWithPath testPath (simulatePressureRelease scheduleSingle)) (initState testGraph spLengthMap nodes)
     print actualTestRelease
     let actualMaxRelease = searchMaxPressureRelease testGraph
     print actualMaxRelease
