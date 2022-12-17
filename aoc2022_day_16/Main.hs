@@ -5,7 +5,7 @@ import Control.Monad.Coroutine
 import Control.Monad.Coroutine.SuspensionFunctors hiding (Reader)
 import Control.Monad.Coroutine.Nested
 import Data.Functor.Sum
-import Data.Graph.Inductive
+import Data.Graph.Inductive hiding ((&))
 import Data.Graph.Inductive qualified as G
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -53,6 +53,7 @@ allPairsShortestPath (TunnelGraph graph startNode) nodes =
     in Map.fromList [((n1, n2), fromJust $ spLength n1 n2 graph) | n1 <- nodes', n2 <- nodes', n1 /= n2]
 
 data SimConfig = SimConfig {
+    totalTime :: Int,
     tunnel :: TunnelGraph,
     spLengthMap :: Map (Node, Node) Int
 } deriving (Generic, Show)
@@ -67,14 +68,14 @@ data PlayerState = PlayerState {
     curFlowRate :: Int
 } deriving (Generic, Show)
 
-initState :: (Applicative f) => TunnelGraph -> Map (Node, Node) Int -> [Node] -> (SimConfig, SimState f)
-initState tunnel spLengthMap nonZeroNodes = 
+initState :: (Applicative f) => Int -> TunnelGraph -> Map (Node, Node) Int -> [Node] -> (SimConfig, SimState f)
+initState totalTime tunnel spLengthMap nonZeroNodes = 
     let state = SimState {
             playerState=pure $ PlayerState {
                 curNode=startNode tunnel,
                 curFlowRate=0
              }, unexplored=Set.fromList nonZeroNodes}
-        conf = SimConfig { tunnel = tunnel, spLengthMap=spLengthMap}
+        conf = SimConfig { tunnel = tunnel, spLengthMap=spLengthMap, totalTime=totalTime}
     in (conf, state)
 
 instance (Functor s', MonadState s m) => MonadState s (Coroutine s' m) where
@@ -102,23 +103,16 @@ type PlayerMonad =
         )
     ) (StateT PlayerState (Reader SimConfig))
 
-scheduleSingle :: PlayerMonad a -> SimMonad Identity a
-scheduleSingle coroa = pogoStickNested handleRight $ mapMonad (zoom $ #playerState . #runIdentity) coroa
-    where
-        handleRight (Request (curNode, _) nextStep) = do
-            -- Single player simply updates the set of unexplored nodes
-            -- and return it, since no synchronization is necessary.
-            unexplored <- #unexplored <%= Set.delete curNode
-            nextStep unexplored
-
 singlePressureRelease :: PlayerMonad Int
 singlePressureRelease = do
-    doSimulate 30
+    totalTime <- view #totalTime
+    doSimulate totalTime
     where
         doSimulate 0 = return 0
         doSimulate minutesRemaining = do
             curNode <- use #curNode
-            unexplored <- mapSuspension InR $ request (curNode, minutesRemaining)
+            totalTime <- view #totalTime
+            unexplored <- mapSuspension InR $ request (curNode, totalTime - minutesRemaining)
             valveFlowRate <- flowRate . fromJust . flip lab curNode <$> view (#tunnel . #graph)
             curFlowRate <- use #curFlowRate
             let (nextFlowRate, minutesThere) =
@@ -141,7 +135,7 @@ singlePressureRelease = do
                         rest <- doSimulate newMinutesRemaining
                         return $ minutesThere * curFlowRate + actuallyMovingMinutes * nextFlowRate + rest
 
-simulatePressureRelease :: (PlayerMonad Int -> SimMonad Identity b) -> SimMonad Identity b
+simulatePressureRelease :: (Applicative f) => (PlayerMonad Int -> SimMonad f b) -> SimMonad f b
 simulatePressureRelease scheduler = scheduler singlePressureRelease
 
 runWithPath :: [Node] -> SimMonad f a -> StateT (SimState f) (Reader SimConfig) a
@@ -166,13 +160,97 @@ searchAllPaths conf curState sim =
             in concatMap (searchAllPaths conf nextState . nextStep) moves
         Right result -> [(result, nextState)]
 
-searchMaxPressureRelease :: TunnelGraph -> Int
-searchMaxPressureRelease tunnel =
+searchMaxPressureRelease :: (Foldable f, Applicative f) => Int -> (PlayerMonad Int -> SimMonad f (f Int)) -> TunnelGraph -> Int
+searchMaxPressureRelease totalTime scheduler tunnel =
     let nodes = nonZeroNodes tunnel
         spLengthMap = allPairsShortestPath tunnel nodes
-        (conf, state) = initState tunnel spLengthMap nodes
-    in foldl (\(force -> !curMax) pressureVal -> max curMax pressureVal) 0
-        $ fst <$> searchAllPaths conf state (simulatePressureRelease scheduleSingle)
+        (conf, state) = initState totalTime tunnel spLengthMap nodes
+    in foldl (\(force -> !curMax) pressureVal -> max curMax (sum pressureVal)) 0
+        $ fst <$> searchAllPaths conf state (simulatePressureRelease scheduler)
+
+scheduleSingle :: PlayerMonad a -> SimMonad Identity (Identity a)
+scheduleSingle coroa = 
+    fmap Identity $ pogoStickNested handleRightSingle $ mapMonad (zoom $ #playerState . #runIdentity) coroa
+
+handleRightSingle (Request (curNode, _) nextStep) = do
+    -- Single player simply updates the set of unexplored nodes
+    -- and return it, since no synchronization is necessary.
+    unexplored <- #unexplored <%= Set.delete curNode
+    nextStep unexplored
+
+data Pair a = Pair {
+    l :: a,
+    r :: a
+ } deriving (Generic, Show)
+
+instance Functor Pair where
+    fmap f (Pair a1 a2) = Pair (f a1) (f a2)
+
+instance Applicative Pair where
+    pure a = Pair a a
+    Pair f1 f2 <*> Pair a1 a2 = Pair (f1 a1) (f2 a2)
+
+instance Foldable Pair where
+    foldr f b (Pair a1 a2) = foldr f b [a1, a2]
+
+zoomElem :: (Monad m) => Lens' (Pair PlayerState) PlayerState -> StateT PlayerState m a -> StateT (SimState Pair) m a
+zoomElem elemLens = zoom $ #playerState . elemLens
+
+stepElem :: Lens' (Pair PlayerState) PlayerState -> PlayerMonad a -> SimMonad Pair (Either (Request (Node, Int) (Set Node) (PlayerMonad a)) a)
+stepElem elemLens playerCoro = do
+    playerState <- use $ #playerState . elemLens
+    let unwrapState = runStateT (resume playerCoro) playerState
+    (rawRes, newPlayerState) <- lift $ lift unwrapState
+    #playerState . elemLens .= newPlayerState
+    case rawRes of
+        -- pass results through
+        Right res -> return $ Right res
+        -- when requesting next node to explore, suspend transparently
+        Left (InL (Request unexplored nextStep)) -> do
+            mNode <- request unexplored
+            stepElem elemLens $ nextStep mNode
+        -- when requesting the unexplored nodes, need to synchronize, so outputting the raw results
+        Left (InR unexploredReq) -> return $ Left unexploredReq
+
+unsafeStepElem :: Lens' (Pair PlayerState) PlayerState -> PlayerMonad a -> SimMonad Pair (Request (Node, Int) (Set Node) (PlayerMonad a))
+unsafeStepElem elemLens coroa = do
+    lCoroRes <- stepElem elemLens coroa
+    case lCoroRes of
+        Right _ -> error "coro ended on initialization, this should never happen!"
+        Left req -> return req
+
+schedulePair :: PlayerMonad a -> SimMonad Pair (Pair a)
+schedulePair coroa = do
+    -- Need to step through the initial states in turn until unexplored nodes are needed.
+    Request (lCurNode, lt) lNextStep <- unsafeStepElem #l coroa
+    #unexplored %= Set.delete lCurNode
+    Request (rCurNode, rt) rNextStep <- unsafeStepElem #r coroa
+    #unexplored %= Set.delete rCurNode
+    if lt >= rt then
+        alternatePair rNextStep lNextStep #r #l lt
+    else
+        alternatePair lNextStep rNextStep #l #r rt
+
+alternatePair :: (Set Node -> PlayerMonad a) -> (Set Node -> PlayerMonad a) -> (forall b . Lens' (Pair b) b) -> (forall b . Lens' (Pair b) b) -> Int -> SimMonad Pair (Pair a)
+alternatePair thisCoro otherCoro this other targetTime = do
+    unexplored <- use #unexplored
+    thisStepRes <- stepElem this (thisCoro unexplored)
+    case thisStepRes of
+        -- This player finished, so we just run the remaining player as if he was alone from there.
+        Right thisRes -> do
+            unexplored <- use #unexplored
+            otherRes <- pogoStickNested handleRightSingle $ mapMonad (zoom $ #playerState . other) (otherCoro unexplored)
+            return $ pure thisRes & other .~ otherRes
+        -- This player performed one step, returning current node and current remaining time.
+        -- We update the unexplored nodes by removing the current node.
+        -- If we went past the target time, we can safely run the other player's coro.
+        -- Otherwise, we keep stepping through this player until we do reach the target time.
+        Left (Request (curNode, curTime) nextStep) -> do
+            #unexplored %= Set.delete curNode
+            if curTime >= targetTime then do
+                alternatePair otherCoro nextStep other this curTime
+            else do
+                alternatePair nextStep otherCoro this other targetTime
 
 main :: IO ()
 main = do
@@ -181,12 +259,17 @@ main = do
         spLengthMap = allPairsShortestPath testGraph nodes
         strToName [c1, c2] = (c1, c2)
         testPath = fmap ((nameToNode Map.!) . strToName) ["BB", "CC"]
-        (conf, state) = initState testGraph spLengthMap nodes
+        (conf, state) = initState 30 testGraph spLengthMap nodes
         actualTestRelease = flip runReader conf $ evalStateT (runWithPath testPath (simulatePressureRelease scheduleSingle)) state
     print actualTestRelease
-    let actualMaxRelease = searchMaxPressureRelease testGraph
-    print actualMaxRelease
-    assert (actualTestRelease == 364 + 52 && actualMaxRelease == 1651) $ do
+    let actualMaxReleaseSingle = searchMaxPressureRelease 30 scheduleSingle testGraph
+        actualMaxReleasePair = searchMaxPressureRelease 26 schedulePair testGraph
+    print actualMaxReleasePair
+    assert (actualTestRelease == 364 + 52 && 
+            actualMaxReleaseSingle == 1651 &&
+            actualMaxReleasePair == 1707) $ do
         (graph, _) <- parseOrDie parseGraph <$> TIO.readFile "aoc22_day16_input"
-        let maxRelease = searchMaxPressureRelease graph
-        putStrLn $ "Question 1 answer is: " ++ show maxRelease
+        let maxReleaseSingle = searchMaxPressureRelease 30 scheduleSingle graph
+        putStrLn $ "Question 1 answer is: " ++ show maxReleaseSingle
+        let maxReleasePair = searchMaxPressureRelease 26 schedulePair graph
+        putStrLn $ "Question 2 answer is: " ++ show maxReleasePair
