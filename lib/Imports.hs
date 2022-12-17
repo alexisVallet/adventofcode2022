@@ -11,6 +11,7 @@ module Imports
     module Control.Monad,
     module Control.Monad.Identity,
     module Control.Monad.State.Strict,
+    module Control.Monad.Reader,
     module Criterion.Measurement,
     module Data.Char,
     module Data.List,
