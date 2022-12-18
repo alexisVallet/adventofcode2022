@@ -204,13 +204,11 @@ towerHeight jets numRocks = do
 main :: IO ()
 main = do
   testJets <- parseOrDie parseJet <$> TIO.readFile "aoc22_day17_test"
-  actualHeight1 <- towerHeight testJets 2022
+  actualHeight1 <- towerHeight testJets 2023
   actualHeight2 <- towerHeight testJets 1000000000001
-  print actualHeight1
-  print actualHeight2
   assert (actualHeight1 == 3068 && actualHeight2 == 1514285714288) $ do
     jets <- parseOrDie parseJet <$> TIO.readFile "aoc22_day17_input"
-    height1 <- towerHeight jets 2022
+    height1 <- towerHeight jets 2023
     putStrLn $ "Question 1 answer is: " ++ show height1
     height2 <- towerHeight jets 1000000000001
     putStrLn $ "Question 2 answer is: " ++ show height2
