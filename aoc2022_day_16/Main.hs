@@ -12,6 +12,7 @@ import Data.Set qualified as Set
 import Data.Text.IO qualified as TIO
 import Imports
 import ParseUtils
+import CoroOrphans ()
 
 data NodeLabel = NodeLabel
   { flowRate :: Int,
@@ -91,12 +92,6 @@ initState totalTime tunnel spLengthMap nonZeroNodes =
       conf = SimConfig {tunnel = tunnel, spLengthMap = spLengthMap, totalTime = totalTime}
    in (conf, state)
 
-instance (Functor s', MonadState s m) => MonadState s (Coroutine s' m) where
-  state f = lift (state f)
-
-instance (Functor s', MonadReader r m) => MonadReader r (Coroutine s' m) where
-  ask = lift ask
-  reader f = lift $ reader f
 
 -- Coroutine requesting the next node to move to, or Nothing to stay at the
 -- current node and bring an early end to the simulation.

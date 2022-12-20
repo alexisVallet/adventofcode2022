@@ -3,7 +3,10 @@ Contains imports of external dependencies common to all exercises.
 Useful to avoid repeating a huge block of imports every time.
 -}
 module Imports
-  ( module Data.Sequence,
+  ( module Control.Monad.Coroutine,
+    module Control.Monad.Coroutine.SuspensionFunctors,
+    module Control.Monad.Coroutine.Nested,
+    module Data.Sequence,
     module Data.Bifunctor,
     module Control.DeepSeq,
     module Control.Exception,
@@ -41,6 +44,9 @@ import Control.Exception hiding (try)
 import Control.Lens hiding (noneOf, uncons, (<|), (|>))
 import Control.Monad
 import Control.Monad.Identity
+import Control.Monad.Coroutine
+import Control.Monad.Coroutine.Nested
+import Control.Monad.Coroutine.SuspensionFunctors hiding (Reader)
 import Data.Foldable
 import Control.Monad.Reader
 import Control.Monad.State.Strict
