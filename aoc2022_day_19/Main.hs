@@ -19,6 +19,7 @@ import Data.Text.IO qualified as TIO
 import Imports
 import ParseUtils
 import CoroOrphans
+import ParetoFront
 
 blueprintsParser :: Parsec Void Text (IntMap Blueprint)
 blueprintsParser = fmap IMap.fromList $ some $ do
@@ -246,6 +247,7 @@ showAction (Just (CreateRobot res)) =
 showResMap :: ResourceMap -> String
 showResMap resmap =
     foldr (\(res, j) curStr -> show res ++ ": " ++ show j ++ ", " ++ curStr) "" $ zip [Ore .. Geode] $ R.toList resmap
+
 
 play :: Blueprint -> SimState -> IO  ()
 play blueprint state = do
