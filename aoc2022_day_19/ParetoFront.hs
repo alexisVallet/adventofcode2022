@@ -10,7 +10,8 @@ type Element = [Int]
 
 newtype ParetoFront a = PF {
     unPF :: Either (IntMap a) (IntMap (ParetoFront a))
-} deriving (Generic)
+} deriving (Generic, Eq, Show)
+instance (NFData a) => NFData (ParetoFront a)
 
 instance Functor ParetoFront where
     fmap f (PF (Left leafMap)) = PF (Left (fmap f leafMap))
@@ -19,6 +20,13 @@ instance Functor ParetoFront where
 instance Foldable ParetoFront where
     foldr f b (PF (Left leafMap)) = foldr f b leafMap
     foldr f b (PF (Right nodeMap)) = foldr (flip (foldr f)) b nodeMap
+
+foldrWithKey :: (Element -> a -> b -> b) -> b -> ParetoFront a -> b
+foldrWithKey f b (PF (Left leafMap)) = IMap.foldrWithKey (f . (:[])) b leafMap
+foldrWithKey f b (PF (Right nodeMap)) = IMap.foldrWithKey (\k a b' -> foldrWithKey (f . (k:)) b' a) b nodeMap
+
+frontAssocs :: ParetoFront a -> [(Element, a)]
+frontAssocs = foldrWithKey (\el a curList -> (el, a):curList) []
 
 splitLevel :: Int -> IntMap a -> (IntMap a, IntMap a)
 splitLevel i imap =
@@ -66,6 +74,7 @@ frontLookup (i:is) (PF (Right nodeMap)) = do
     frontLookup is subMap
 frontLookup _ _ = error "The element is either too large ot too small for the front!"
 
+-- O(n + m)
 frontDifference :: ParetoFront a -> ParetoFront a -> ParetoFront a
 frontDifference (PF (Left leafMap1)) (PF (Left leafMap2)) = PF (Left (IMap.difference leafMap1 leafMap2))
 frontDifference (PF (Right nodeMap1)) (PF (Right nodeMap2)) =
@@ -85,7 +94,18 @@ frontSingleton [i] a = PF (Left $ IMap.singleton i a)
 frontSingleton (i:is) a = PF (Right $ IMap.singleton i (frontSingleton is a))
 frontSingleton _ _ = error "Element cannot be an empty list!"
 
+-- Empty pareto front has no defined depth just yet.
+-- First insertion will decide it.
+-- Needs to be at least 2.
+frontEmpty :: ParetoFront a
+frontEmpty = PF (Right mempty)
+
 -- Fused memoizing and pareto front maintenance.
+-- O(log n) if the element is in the front.
+-- O(d log(n)^2) if the element is dominated by any element in the front, or non comparable to all.
+-- O(n) if the element is dominating any element in the front.
+-- Hopefully this works out alright for our use cases.
+-- 
 -- Returns (mVal, newFront, isDominated) where:
 -- * mVal is the result of looking up the element. Nothing if the element is new,
 --   or yet to be computed. Just x if the value has been computed.

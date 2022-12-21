@@ -45,7 +45,7 @@ blueprintsParser = fmap IMap.fromList $ some $ do
         (Obsidian, resMapFromList [(Ore, obsidianRobotOreCost), (Clay, obsidianRobotClayCost)]),
         (Geode, resMapFromList [(Ore, geodeRobotOreCost), (Obsidian, geodeRobotObsidianCost)])])
 
-resMapFromList :: [(Resource, Word8)] -> ResourceMap
+resMapFromList :: [(Resource, Int)] -> ResourceMap
 resMapFromList assocs =
     let resIMap = IMap.fromList $ fmap (first fromEnum) assocs
     in computeUnboxedS $ fromFunction (Z :. 4) (\(Z :. i) -> fromMaybe 0 (IMap.lookup i resIMap))
@@ -62,9 +62,9 @@ bluePrintFromResMaps assocs =
 --   resource to its cost vector
 -- * Robots as 4d vector mapping of resources to number of robots outputting that resource
 -- * Current resources as 4d vector mapping of resources to amount of that resource
-type Blueprint = Array U DIM2 Word8
+type Blueprint = Array U DIM2 Int
 
-type ResourceMap = Array U DIM1 Word8
+type ResourceMap = Array U DIM1 Int
 
 data Resource = Ore | Clay | Obsidian | Geode
     deriving (Generic, Eq, Ord, Show, Bounded, Enum)
@@ -91,7 +91,7 @@ data SimState = SimState {
     -- quantity of each robot
     robots :: !ResourceMap,
     prevMAction :: !(Maybe Action),
-    timeRemaining :: !Word8
+    timeRemaining :: !Int
 } deriving (Eq, Generic, Show)
 instance Hashable SimState
 
@@ -103,7 +103,7 @@ initState :: Int -> SimState
 initState timeRemaining = SimState {
     resources=resMapFromList $ zip [Ore .. Geode] (repeat 0),
     robots=resMapFromList [(Ore, 1), (Clay, 0), (Obsidian, 0), (Geode, 0)],
-    prevMAction=Nothing, timeRemaining=fromIntegral timeRemaining}
+    prevMAction=Nothing, timeRemaining=timeRemaining}
 
 data Action = CreateRobot !Word8
     deriving (Generic, Eq, Ord, Show)
@@ -145,7 +145,7 @@ simulate mAction = do
     minutesRemaining <- use #timeRemaining
     if minutesRemaining == 0 then do
         finalResources <- use #resources
-        return $ Just $ fromIntegral $ finalResources R.! ix1 (fromEnum Geode)
+        return $ Just $ finalResources R.! ix1 (fromEnum Geode)
     else do
         prevMAction <- use #prevMAction
         -- Pay the cost now, receive the robot next step.
@@ -157,69 +157,89 @@ simulate mAction = do
         #prevMAction .= mAction
         return Nothing
 
-data MemoizeState = MemoizeState {
-    cache :: !(HashMap SimState (Int, Int)),
-    cleanupIterations :: !Int,
-    curIteration :: !Int,
-    maxSize :: !Int
+newtype MemoizeState = MemoizeState {
+    cache :: ParetoFront (Maybe Int)
 } deriving (Generic)
 instance NFData MemoizeState
 
 type Memoize = State MemoizeState
 
--- Memoizing solution for dynamic programming. Because it's not practical
--- to store the full state map in memory, especially when running many blueprints
--- in parallel, we only cache the latest N values by periodically cleaning up old
--- ones.
+simStateToElem :: SimState -> Element
+simStateToElem SimState {..} =
+    [timeRemaining]
+    ++ (case prevMAction of
+        Nothing -> [0, 0, 0, 0]
+        Just (CreateRobot r) -> R.toList (oneHot IMap.! fromIntegral r))
+    ++ R.toList robots
+    ++ R.toList resources
+
+elemToSimState :: Element -> SimState
+elemToSimState elem =
+    let ([timeRemaining], rest) = splitAt 1 elem
+        (prevMActionVec, rest') = splitAt 4 rest
+        (robotsVec, rest'') = splitAt 4 rest'
+        (resourcesVec, _) = splitAt 4 rest''
+    in SimState {
+        timeRemaining=timeRemaining,
+        prevMAction=case elemIndex 1 prevMActionVec of
+            Nothing -> Nothing
+            Just r -> Just $ CreateRobot $ fromIntegral r,
+        robots=fromListUnboxed (Z :. 4) robotsVec,
+        resources=fromListUnboxed (Z :. 4) resourcesVec
+    }
+
+-- Memoizing function for dynamic programming, which also stores a pareto
+-- front of encountered simulation states such that dominated state do not
+-- get explored. Memory usage should be kept in check by this as well, as
+-- dominated states get removed from the pareto front.
 {-# SCC memoize #-}
-memoize :: (SimState -> Memoize Int) -> SimState -> Memoize Int
+memoize :: (SimState -> Memoize (Maybe Int)) -> SimState -> Memoize (Maybe Int)
 memoize f x = do
     cache <- use #cache
-    case HMap.lookup x cache of
-        Just (_, y) -> return y
+    let xElem = simStateToElem x
+        (lookupRes, newCache, isDominated) = insertLookup xElem cache
+    #cache .= newCache
+    case lookupRes of
+        Just y -> return $ Just y
         Nothing -> do
-            y <- f x
-            it <- use #curIteration
-            isCleanupIt <- (== 0) . (it `mod`) <$> use #cleanupIterations
-            when isCleanupIt $ do
-                st <- get
-                st `deepseq` do
-                    maxSize <- use #maxSize
-                    #cache %= HMap.filter (\(insertIt, _) -> insertIt >= it - maxSize)
-            #curIteration += 1
-            #cache %= HMap.insert x (it, y)
-            return y
+            -- If the state is dominated by another one in the cache, there is no
+            -- need to explore it, so we return Nothing.
+            if isDominated then return Nothing else do
+                y <- f x
+                -- Once we have computed the function, store its value in the pareto
+                -- front.
+                #cache %= frontInsert xElem y
+                return y
 
-runMemoize :: Int -> Int -> Memoize a -> a
-runMemoize cleanupIterations maxSize memAct = evalState memAct $ MemoizeState {
-    cache=mempty,
-    cleanupIterations=cleanupIterations,
-    curIteration=0,
-    maxSize=maxSize
+runMemoize :: Memoize a -> a
+runMemoize memAct = evalState memAct $ MemoizeState {
+    cache=frontEmpty
 }
 
 {-# SCC maxNumGeodes #-}
 maxNumGeodes :: Int -> Blueprint -> Int
 maxNumGeodes minutesRemaining blueprint =
-    let
-        maxNumGeodes'' :: SimState -> Memoize Int
-        maxNumGeodes'' = memoize maxNumGeodes'
-        maxNumGeodes' (force -> !simState) =
+    let maxNumGeodes' :: SimState -> Memoize (Maybe Int)
+        maxNumGeodes' (force -> !simState) = do
             let actions = legalActions blueprint simState
+                -- computeChildRes, through the effect of memoize, returns Nothing if
+                -- the child branch should be skipped because it is dominated by an element
+                -- of the pareto front.
+                computeChildRes :: SimState -> Maybe Action -> Memoize (Maybe Int)
                 computeChildRes st mAct =
                     let (mRes, st') = runSim blueprint st $ simulate mAct
                     in case mRes of
-                        Just childRes -> return childRes
-                        Nothing -> maxNumGeodes'' st'
-                childResults = forM (Nothing : fmap Just actions) (computeChildRes simState)
-            in maximum <$> childResults
-    in runMemoize 500000 1000000 $ maxNumGeodes'' (initState minutesRemaining)
+                        Just childRes -> return $ Just childRes
+                        Nothing -> memoize maxNumGeodes' st'
+            childResults <- catMaybes <$> forM (Nothing : fmap Just actions) (computeChildRes simState)
+            if null childResults then return Nothing else return $ Just $ maximum childResults
+    in fromJust $ runMemoize $ maxNumGeodes' (initState minutesRemaining)
 
 sumQualityLevel :: Int -> IntMap Blueprint -> Int
 sumQualityLevel minutes blueprints =
     sum $ uncurry (*) <$> (fmap (second (maxNumGeodes minutes)) (IMap.assocs blueprints) `using` parListChunk 16 rdeepseq)
 
-data Mode = Solve | Play
+data Mode = Solve | Play | Test
     deriving (Generic, Show, Data, Typeable, Eq)
 
 data Args = Args {
@@ -234,10 +254,24 @@ main = do
         Solve -> do
             let actualSumQL = sumQualityLevel 24 testBlueprints
             print actualSumQL
-            assert (actualSumQL == 33) $ do
-                blueprints <- parseOrDie blueprintsParser <$> TIO.readFile "aoc22_day18_input"
-                putStrLn $ "Question 1 answer is: " ++ show (sumQualityLevel 24 blueprints)
+            {-assert (actualSumQL == 33) $ do
+                blueprints <- parseOrDie blueprintsParser <$> TIO.readFile "aoc22_day19_input"
+                putStrLn $ "Question 1 answer is: " ++ show (sumQualityLevel 24 blueprints)-}
         Play -> play (testBlueprints IMap.! 1) (initState 24)
+        Test -> do
+            -- Some simple unit tests for the pareto front
+            let initFront = frontSingleton [1, 2, 3] Nothing :: ParetoFront (Maybe Int)
+            assert (length initFront == 1) $ return ()
+            let insert1Res = insertLookup [0, 0, 0] initFront
+            assert (insert1Res == (Nothing, initFront, True)) $ return ()
+            let (actualLookup, actualFront, isDominated) = insertLookup [3, 2, 1] initFront
+            assert (frontAssocs actualFront == [([1, 2, 3], Nothing), ([3, 2, 1], Nothing)]) $ return ()
+            assert (isNothing actualLookup && not isDominated) $ return ()
+            let (_, actualFront', _) = insertLookup [2, 2, 3] actualFront
+            assert (frontAssocs actualFront' == [([2, 2, 3], Nothing), ([3, 2, 1], Nothing)]) $ return ()
+            let actualFront'' = frontInsert [2, 2, 3] (Just 5) actualFront'
+                (actualLookup'', _, _) = insertLookup [2, 2, 3] actualFront''
+            assert (actualLookup'' == Just 5) $ return ()
 
 showAction :: Maybe Action -> String
 showAction Nothing = "do nothing"
