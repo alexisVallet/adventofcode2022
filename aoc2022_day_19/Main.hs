@@ -3,7 +3,9 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Main where
 
+import Data.Ratio
 import Data.IntMap qualified as IMap
+import Control.Monad.Random.Strict
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Text.Read (readMaybe)
@@ -105,7 +107,7 @@ initState timeRemaining = SimState {
     robots=resMapFromList [(Ore, 1), (Clay, 0), (Obsidian, 0), (Geode, 0)],
     prevMAction=Nothing, timeRemaining=timeRemaining}
 
-data Action = CreateRobot !Word8
+data Action = CreateRobot !Int
     deriving (Generic, Eq, Ord, Show)
 instance NFData Action
 instance Hashable Action
@@ -117,13 +119,13 @@ type Sim = StateT SimState (Reader Blueprint)
 runSim :: Blueprint -> SimState -> Sim a -> (a, SimState)
 runSim blueprint simState = flip runReader blueprint . flip runStateT simState
 
-legalActions :: Blueprint -> SimState -> [Action]
+legalActions :: Blueprint -> SimState -> [Maybe Action]
 legalActions blueprint simState = fst $ runSim blueprint simState $ do
     curResources <- use #resources
     blueprint <- ask
     let tiledResources = extend (Z :. (4 :: Int) :. All) curResources
         res = foldS (&&) True $ R.zipWith (>=) tiledResources blueprint
-    return $ fmap (CreateRobot . fst) $ filter snd $ zip [fromIntegral $ fromEnum Ore .. fromIntegral $ fromEnum Geode] (R.toList res)
+    return $ Nothing : fmap (Just . CreateRobot . fst) (filter snd $ zip [fromEnum Ore .. fromEnum Geode] (R.toList res))
 
 oneHot :: IntMap ResourceMap
 oneHot = IMap.fromList $ [
@@ -133,11 +135,11 @@ oneHot = IMap.fromList $ [
 payCost :: Maybe Action -> Sim ()
 payCost mAction = forM_ mAction $ \(CreateRobot res) -> do
     blueprint <- ask
-    #resources %= computeUnboxedS . (-^ slice blueprint (Z :. (fromIntegral res :: Int) :. All))
+    #resources %= computeUnboxedS . (-^ slice blueprint (Z :. res :. All))
 
 createRobot :: Maybe Action -> Sim ()
 createRobot mAction = forM_ mAction $ \(CreateRobot res) -> do
-    #robots %= computeUnboxedS . (+^ oneHot IMap.! fromIntegral res)
+    #robots %= computeUnboxedS . (+^ oneHot IMap.! res)
 
 {-# SCC simulate #-}
 simulate :: Maybe Action -> Sim (Maybe Int)
@@ -157,12 +159,99 @@ simulate mAction = do
         #prevMAction .= mAction
         return Nothing
 
-newtype MemoizeState = MemoizeState {
-    cache :: ParetoFront (Maybe Int)
+data MemoizeState = MemoizeState {
+    cache :: ParetoFront (Maybe Int),
+    iteration :: Int
 } deriving (Generic)
 instance NFData MemoizeState
 
-type Memoize = State MemoizeState
+data SearchHeuristic = Ascending | Descending | Rollout | ValueFunction
+    deriving (Generic, Eq, Show, Data, Typeable)
+
+data SearchConfig = SearchConfig {
+    heuristic :: SearchHeuristic
+} deriving (Generic)
+
+type Search = ReaderT SearchConfig (RandT StdGen (State MemoizeState))
+
+geodeRobotCost :: Blueprint -> (Float, Float)
+geodeRobotCost blueprint =
+    (fromIntegral $ blueprint ! ix2 (fromEnum Geode) (fromEnum Ore),
+     fromIntegral $ blueprint ! ix2 (fromEnum Geode) (fromEnum Obsidian))
+
+obsidianRobotCost :: Blueprint -> (Float, Float)
+obsidianRobotCost blueprint =
+    (fromIntegral $ blueprint ! ix2 (fromEnum Obsidian) (fromEnum Ore),
+    fromIntegral $ blueprint ! ix2 (fromEnum Obsidian) (fromEnum Clay))
+
+clayRobotCost :: Blueprint -> Float
+clayRobotCost blueprint =
+    fromIntegral $ blueprint ! ix2 (fromEnum Clay) (fromEnum Ore)
+
+oreRobotCost :: Blueprint -> Float
+oreRobotCost blueprint =
+    fromIntegral $ blueprint ! ix2 (fromEnum Ore) (fromEnum Ore)
+
+valueFunction :: Blueprint -> SimState -> Float
+valueFunction blueprint state =
+    -- Rough, handcrafted value function heuristic based on how
+    -- many expected geodes a given resource is "worth".
+    --
+    -- Let t be the time remaining:
+    -- * 1 geode is worth V_geode = 1 geode (obviously)
+    --
+    -- We express value per minutes for each resource.
+    -- Then roughly if 1 geode robot costs G_ore ore and G_obs obsidian.
+    -- * V_obs = V_geode / (2 * G_obs) geodes
+    -- * V_ore_g = V_geode / (2 * G_ore)
+    --
+    -- If 1 obsidian robot costs Ob_ore and Ob_clay:
+    -- * V_clay = V_obs / (2 * Ob_clay) 
+    -- * V_ore_obs = V_obs / (2 * Ob_ore)
+    --
+    -- If 1 clay robot costs C_ore:
+    -- * V_ore_c = V_clay / C_ore
+    -- 
+    -- If 1 ore robot cost Ore_ore:
+    -- * V_ore_ore = V_ore / Ore_ore
+    --
+    -- Then we want V_ore = mean(V_ore_ore, V_ore_c, V_ore_obs, V_ore_g)
+    -- With some elementary algebra this gives use:
+    -- V_ore = Ore_ore * (V_ore_c + V_ore_obs + V_ore_g) / (4 * Ore_ore - 1)
+    -- I'm not quite sure it's right but if it works...
+    --
+    -- Robots for resource r are worth t * V_r
+    --
+    -- Previous action of Nothing is worth 0, while a previous
+    -- action of creating a robot of resource r is equal to (t - 1) * V_r
+    let t = fromIntegral $ timeRemaining state
+        (g_ore, g_obs) = geodeRobotCost blueprint
+        (ob_ore, ob_clay) = obsidianRobotCost blueprint
+        c_ore = clayRobotCost blueprint
+        ore_ore = oreRobotCost blueprint
+        v_geode = 1
+        v_obs = v_geode / (2 * g_obs)
+        v_ore_g = v_geode / (2 * g_ore)
+        v_clay = v_obs / (2 * ob_clay)
+        v_ore_obs = v_obs / (2 * ob_ore)
+        v_ore_c = v_clay / c_ore
+        v_ore = ore_ore * (v_ore_c + v_ore_obs + v_ore_g) / (4 * ore_ore - 1)
+        robots_value = sumAllS $ R.map fromIntegral (robots state) *^ resources_unit_values
+        resources_unit_values = R.fromListUnboxed (ix1 4) [v_ore, v_clay, v_obs, v_geode]
+        resources_value = sumAllS $ R.map fromIntegral (resources state) *^ resources_unit_values
+        prevMActionValue = case prevMAction state of
+            Nothing -> 0
+            Just (CreateRobot res) -> resources_unit_values ! ix1 res
+    in -- robots give value at the current time step, so we multiply by t.
+       -- resources give value after we create a robot with them, which takes 1 step,
+       -- so we multiply by (t - 1).
+       -- Action from the previous step is worth a robot next step, so we also multiply
+       -- by (t - 1)
+       -- Also basically adding some ad-hoc weights to give more values to robots
+       -- vs resources.
+       -- trace ("robots_value=" ++ show robots_value ++ ", resources_value=" ++ show resources_value ++ ", prevMActionValue=" ++ show prevMActionValue ++ ", t=" ++ show t) $
+       100 * t * robots_value + (t - 1) * (resources_value + 50 * prevMActionValue)
+
 
 simStateToElem :: SimState -> Element
 simStateToElem SimState {..} =
@@ -193,8 +282,18 @@ elemToSimState elem =
 -- get explored. Memory usage should be kept in check by this as well, as
 -- dominated states get removed from the pareto front.
 {-# SCC memoize #-}
-memoize :: (SimState -> Memoize (Maybe Int)) -> SimState -> Memoize (Maybe Int)
+memoize :: (SimState -> Search (Maybe Int)) -> SimState -> Search (Maybe Int)
 memoize f x = do
+    isCleanupIt <- (== 0) . (`mod` 100000) <$> use #iteration
+    #iteration += 1
+    when isCleanupIt $ do
+        st <- get
+        st `deepseq` do
+            -- this ugly traceM call is just there in case this gets optimized
+            -- out otherwise by GHC. I'm not sure it's necessary, but I'm not taking
+            -- any chances.
+            traceM "Cleaning up!"
+            return ()
     cache <- use #cache
     let xElem = simStateToElem x
         (lookupRes, newCache, isDominated) = insertLookup xElem cache
@@ -211,52 +310,83 @@ memoize f x = do
                 #cache %= frontInsert xElem y
                 return y
 
-runMemoize :: Memoize a -> a
-runMemoize memAct = evalState memAct $ MemoizeState {
-    cache=frontEmpty
+runMemoize :: SearchConfig -> StdGen -> Search a -> a
+runMemoize conf gen memAct = evalState (evalRandT (runReaderT memAct conf) gen) $ MemoizeState {
+    cache=frontEmpty, iteration=0
 }
 
+rollout :: Blueprint -> SimState -> Search Int
+rollout blueprint simState = do
+    let actions = legalActions blueprint simState
+        weights = [1, 4, 16, 64, 256]
+    pickedAction <- weighted $ zip actions weights
+    let (mRes, st') = runSim blueprint simState $ simulate pickedAction
+    case mRes of
+        Just res -> return res
+        Nothing -> rollout blueprint st'
+
 {-# SCC maxNumGeodes #-}
-maxNumGeodes :: Int -> Blueprint -> Int
-maxNumGeodes minutesRemaining blueprint =
-    let maxNumGeodes' :: SimState -> Memoize (Maybe Int)
+maxNumGeodes :: SearchConfig -> StdGen -> Int -> Blueprint -> Int
+maxNumGeodes conf gen minutesRemaining blueprint =
+    let maxNumGeodes' :: SimState -> Search (Maybe Int)
         maxNumGeodes' (force -> !simState) = do
             let actions = legalActions blueprint simState
-                -- computeChildRes, through the effect of memoize, returns Nothing if
-                -- the child branch should be skipped because it is dominated by an element
-                -- of the pareto front.
-                computeChildRes :: SimState -> Maybe Action -> Memoize (Maybe Int)
-                computeChildRes st mAct =
-                    let (mRes, st') = runSim blueprint st $ simulate mAct
-                    in case mRes of
-                        Just childRes -> return $ Just childRes
+            heuristicResults <- forM (zip [0..] actions) $ \(i, act) -> do
+                let (mRes, st') = runSim blueprint simState $ simulate act
+                heuristic <- view #heuristic
+                case heuristic of
+                    Rollout -> do
+                        case mRes of
+                            Just childRes -> return (fromIntegral childRes, st', mRes)
+                            Nothing -> do
+                                rolloutRes <- rollout blueprint st'
+                                return (fromIntegral rolloutRes, st', mRes)
+                    ValueFunction -> do
+                        -- Using a heuristic, scoring function. Not really
+                        -- comparable with the actual output (probably).
+                        let value = valueFunction blueprint st'
+                        -- traceM $ "Action " ++ show i ++ " " ++ show act ++ " state value: " ++ show value
+                        return (value, st', mRes)
+                    Ascending -> return (-(fromIntegral i), st', mRes)
+                    Descending -> return (fromIntegral i, st', mRes)
+            childResults <-
+                fmap catMaybes
+                $ forM (sortBy (\(v1, _, _) (v2,_, _) -> compare v2 v1) heuristicResults) $ \(_, st', mRes) -> do
+                    case mRes of
+                        Just v -> return $ Just v
                         Nothing -> memoize maxNumGeodes' st'
-            childResults <- catMaybes <$> forM (Nothing : fmap Just actions) (computeChildRes simState)
             if null childResults then return Nothing else return $ Just $ maximum childResults
-    in fromJust $ runMemoize $ maxNumGeodes' (initState minutesRemaining)
+    in fromJust $ runMemoize conf gen $ maxNumGeodes' (initState minutesRemaining)
 
-sumQualityLevel :: Int -> IntMap Blueprint -> Int
-sumQualityLevel minutes blueprints =
-    sum $ uncurry (*) <$> (fmap (second (maxNumGeodes minutes)) (IMap.assocs blueprints) `using` parListChunk 16 rdeepseq)
+sumQualityLevel :: SearchConfig -> StdGen -> Int -> IntMap Blueprint -> Int
+sumQualityLevel conf gen minutes blueprints =
+    sum $ uncurry (*) <$> (fmap (second (maxNumGeodes conf gen minutes)) (IMap.assocs blueprints) `using` evalList rdeepseq)
 
-data Mode = Solve | Play | Test
+data Mode = SolveQ1 | SolveQ2 | Play | Test
     deriving (Generic, Show, Data, Typeable, Eq)
 
 data Args = Args {
-    mode :: Mode
+    mode :: Mode,
+    searchHeuristic :: SearchHeuristic
 } deriving (Generic, Show, Data, Typeable)
 
 main :: IO ()
 main = do
-    args <- cmdArgs $ Args {mode=Solve}
+    args <- cmdArgs $ Args {mode=SolveQ1, searchHeuristic=Descending}
     testBlueprints <- parseOrDie blueprintsParser <$> TIO.readFile "aoc22_day19_test"
+    blueprints <- parseOrDie blueprintsParser <$> TIO.readFile "aoc22_day19_input"
+    -- RNG only used for random rollout heuristic, so sharing shouldn't be an issue.
+    gen <- getStdGen
+    let conf = SearchConfig {
+        heuristic = searchHeuristic args
+    }
     case mode args of
-        Solve -> do
-            let actualSumQL = sumQualityLevel 24 testBlueprints
-            print actualSumQL
-            {-assert (actualSumQL == 33) $ do
-                blueprints <- parseOrDie blueprintsParser <$> TIO.readFile "aoc22_day19_input"
-                putStrLn $ "Question 1 answer is: " ++ show (sumQualityLevel 24 blueprints)-}
+        SolveQ1 -> do
+            putStrLn $ "Question 1 answer is: " ++ show (sumQualityLevel conf gen 24 blueprints)
+        SolveQ2 -> do
+            let blueprints' = take 3 $ IMap.elems blueprints
+                answer = product (fmap (fromIntegral . maxNumGeodes conf gen 32 :: Blueprint -> Integer) blueprints' `using` parList rdeepseq)
+            putStrLn $ "Question 2 answer is: " ++ show answer
         Play -> play (testBlueprints IMap.! 1) (initState 24)
         Test -> do
             -- Some simple unit tests for the pareto front
@@ -272,6 +402,13 @@ main = do
             let actualFront'' = frontInsert [2, 2, 3] (Just 5) actualFront'
                 (actualLookup'', _, _) = insertLookup [2, 2, 3] actualFront''
             assert (actualLookup'' == Just 5) $ return ()
+            -- Check results on the test blueprints
+            startTime <- getTime
+            let actualSumQL = sumQualityLevel conf gen 24 testBlueprints
+            endTime <- actualSumQL `deepseq` getTime
+            putStrLn $ "Ran in " ++ show (endTime - startTime) ++ " seconds"
+            putStrLn $ "Test sum QL: " ++ show actualSumQL
+            assert (actualSumQL == 33) $ return ()
 
 showAction :: Maybe Action -> String
 showAction Nothing = "do nothing"
@@ -282,10 +419,9 @@ showResMap :: ResourceMap -> String
 showResMap resmap =
     foldr (\(res, j) curStr -> show res ++ ": " ++ show j ++ ", " ++ curStr) "" $ zip [Ore .. Geode] $ R.toList resmap
 
-
 play :: Blueprint -> SimState -> IO  ()
 play blueprint state = do
-    let actions = Nothing : fmap Just (legalActions blueprint state)
+    let actions = legalActions blueprint state
         actionMap = zip [0..] actions
     putStrLn $ "Blueprint: "
     forM_ [Ore .. Geode] $ \res -> do
