@@ -17,11 +17,13 @@ This package depends on the following:
     follow the `Building from source` section in the paragraph above.
   - To build LLVM 9, I needed to add the following flag to `cmake`: `-DLLVM_ENABLE_RTTI=ON`
   - To build LLVM 9, I needed to downgrade to use GCC 10. GCC 11 did not work for some reason.
+  - I was able to fix the following error by updating to the latest nvidia drivers: `CUDA Exception: forward compatibility was attempted on non supported HW`
   - Accelerate is only required for a few solutions, though accelerate is set as
     a global dependency. I should probably change that somehow, because installing
     Accelerate is painful.
 - Haskell stack: https://docs.haskellstack.org/en/stable/
 - Some BLAS and LAPACK distributions for HMatrix
+- The Z3 library (i.e. `libz3-dev` on ubuntu at the time of writing)
 
 ### Running solutions
 You may run solutions for a specific day by running:
