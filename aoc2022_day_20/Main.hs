@@ -48,8 +48,8 @@ mixAt origIdx numbers =
         rawShiftSize = abs c
         n = Seq.length numbers - 1
         shiftSize = if rawShiftSize < n then rawShiftSize else
-            rawShiftSize - n * undefined
-    in zipperSeq $ foldr (const shift) z [1..abs c]
+            rawShiftSize `mod` n
+    in zipperSeq $ foldr (const shift) z [1..shiftSize]
 
 mixNumbers :: [Int] -> Seq (Int, Int) -> Seq (Int, Int)
 mixNumbers indices zippedNumbers = foldl (flip mixAt) zippedNumbers indices

@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use newtype instead of data" #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Main where
+module Main (main) where
 
 import Data.Ratio
 import Data.IntMap qualified as IMap
@@ -165,7 +165,7 @@ data MemoizeState = MemoizeState {
 } deriving (Generic)
 instance NFData MemoizeState
 
-data SearchHeuristic = Ascending | Descending | Rollout | ValueFunction
+data SearchHeuristic = Ascending | Descending | Rollout | ValueFunction | Policy
     deriving (Generic, Eq, Show, Data, Typeable)
 
 data SearchConfig = SearchConfig {
@@ -253,6 +253,40 @@ valueFunction blueprint state =
        100 * t * robots_value + (t - 1) * (resources_value + 50 * prevMActionValue)
 
 
+policy :: Blueprint -> SimState -> [Maybe Action] -> [(Float, Maybe Action)]
+policy blueprint simState actions =
+    let eps = 1e-5
+        resourcePolicy = mixedPolicy blueprint simState
+     in fmap (\mAction -> case mAction of
+            -- doing nothing is better than wasting resources on an already saturated one (unsaturation 0)
+            -- but usually worse than creating a robot for any unsaturated one (unsaturation > eps)
+            Nothing -> (eps, mAction)
+            Just (CreateRobot res) -> (resourcePolicy ! ix1 res, mAction)) actions
+
+-- Early game (> 20 minutes remaining usually) you want to prioritize
+-- ore, clay, obsidian production so you have more capacity in the late game.
+earlyGamePolicy :: Array U DIM1 Float
+earlyGamePolicy = R.fromListUnboxed (ix1 4) [1, 0.75, 0.5, 0.25]
+
+-- Late game (<= 20 minutes remaining usually) you want to prioritize
+-- geode.
+lateGamePolicy :: Array U DIM1 Float
+lateGamePolicy = R.fromListUnboxed (ix1 4) [0.25, 0.5, 0.75, 1]
+
+-- Interpolating between early game and late game policies depending
+-- on time remaining, while always assigning 0 priority to saturated
+-- resources
+mixedPolicy :: Blueprint -> SimState -> Array U DIM1 Float
+mixedPolicy blueprint SimState {..} =
+    let saturated = R.zipWith (\x y -> if x >= y then 0 else 1) robots (foldS max 0 blueprint)
+        earlyGameFactorScalar = min 1 $ max 0 $ fromIntegral timeRemaining / 20 - 0.5
+        earlyGameFactor = R.fromFunction (ix1 4) (const earlyGameFactorScalar)
+        lateGameFactor = R.fromFunction (ix1 4) (const $ 1 - earlyGameFactorScalar)
+        policy = computeUnboxedS $ saturated *^ (earlyGameFactor *^ earlyGamePolicy +^ lateGameFactor *^ lateGamePolicy)
+    in trace ("t=" ++ show timeRemaining ++ ", policy=" ++ show policy ++ ", egFactor=" ++ show earlyGameFactorScalar) $
+        policy
+
+
 simStateToElem :: SimState -> Element
 simStateToElem SimState {..} =
     [timeRemaining]
@@ -331,9 +365,10 @@ maxNumGeodes conf gen minutesRemaining blueprint =
     let maxNumGeodes' :: SimState -> Search (Maybe Int)
         maxNumGeodes' (force -> !simState) = do
             let actions = legalActions blueprint simState
-            heuristicResults <- forM (zip [0..] actions) $ \(i, act) -> do
+            heuristic <- view #heuristic
+            let satPolRes = policy blueprint simState actions
+            heuristicResults <- forM (zip3 [0..] actions satPolRes) $ \(i, act, satPol) -> do
                 let (mRes, st') = runSim blueprint simState $ simulate act
-                heuristic <- view #heuristic
                 case heuristic of
                     Rollout -> do
                         case mRes of
@@ -349,6 +384,7 @@ maxNumGeodes conf gen minutesRemaining blueprint =
                         return (value, st', mRes)
                     Ascending -> return (-(fromIntegral i), st', mRes)
                     Descending -> return (fromIntegral i, st', mRes)
+                    Policy -> return (fst satPol, st', mRes)
             childResults <-
                 fmap catMaybes
                 $ forM (sortBy (\(v1, _, _) (v2,_, _) -> compare v2 v1) heuristicResults) $ \(_, st', mRes) -> do
@@ -404,7 +440,7 @@ main = do
             assert (actualLookup'' == Just 5) $ return ()
             -- Check results on the test blueprints
             startTime <- getTime
-            let actualSumQL = sumQualityLevel conf gen 24 testBlueprints
+            let actualSumQL = sumQualityLevel conf gen 20 testBlueprints
             endTime <- actualSumQL `deepseq` getTime
             putStrLn $ "Ran in " ++ show (endTime - startTime) ++ " seconds"
             putStrLn $ "Test sum QL: " ++ show actualSumQL
