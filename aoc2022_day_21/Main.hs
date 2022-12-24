@@ -2,18 +2,21 @@ module Main (main) where
 
 import Data.Map.Strict qualified as Map
 import Data.Text.IO qualified as TIO
+import Data.Array.Accelerate (Exp, Acc, Scalar, Vector, Array, DIM1)
+import Data.Array.Accelerate qualified as A
+import Data.Array.Accelerate.Interpreter qualified as AI
 import Imports hiding (Vertex)
 import ParseUtils
 
 type Vertex = String
 
-data Node = Constant Int | BinOp (Int -> Int -> Int) Vertex Vertex
+data Node = Constant Int | BinOp (Exp Int -> Exp Int -> Exp Int) Vertex Vertex
 
 type ComputeGraph = Map Vertex Node
 
 parseName = replicateM 4 anySingle
 
-parseOp :: Parsec Void Text (Int -> Int -> Int)
+parseOp :: Parsec Void Text (Exp Int -> Exp Int -> Exp Int)
 parseOp = do
     opChar <- oneOf ("+-*/" :: [Char])
     return $ case opChar of
@@ -39,12 +42,18 @@ parseComputeGraph = fmap Map.fromList $ some $ do
     newline
     return (name, node)
 
-computeNode :: String -> ComputeGraph -> Int
-computeNode name graph =
+computeNodeExp :: String -> ComputeGraph -> Exp Int
+computeNodeExp name graph =
     case Map.lookup name graph of
         Nothing -> error $ "Invalid name " ++ name
-        Just (Constant i) -> i
-        Just (BinOp op l r) -> op (computeNode l graph) (computeNode r graph)
+        Just (Constant i) -> A.constant i
+        Just (BinOp op l r) -> op (computeNodeExp l graph) (computeNodeExp r graph)
+
+computeNode :: String -> ComputeGraph -> Int
+computeNode name graph =
+    let exp = computeNodeExp name graph
+        acc = A.unit exp
+    in A.indexArray (AI.run acc) A.Z
 
 main :: IO ()
 main = do
