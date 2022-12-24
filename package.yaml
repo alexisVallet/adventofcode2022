@@ -46,6 +46,7 @@ dependencies:
 - unordered-containers
 - array
 - MonadRandom
+- z3
 
 ghc-options:
 - -Wall
