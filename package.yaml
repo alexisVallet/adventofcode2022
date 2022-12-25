@@ -91,6 +91,7 @@ default-extensions:
 - LiberalTypeSynonyms
 - ImpredicativeTypes
 - DefaultSignatures
+- TupleSections
 
 executables:
   aoc2022-day-01:
@@ -278,6 +279,15 @@ executables:
   aoc2022-day-21:
     main:               Main.hs
     source-dirs:        aoc2022_day_21
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - adventofcode
+  aoc2022-day-21:
+    main:               Main.hs
+    source-dirs:        aoc2022_day_22
     ghc-options:
     - -threaded
     - -rtsopts
