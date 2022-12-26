@@ -285,7 +285,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - adventofcode
-  aoc2022-day-21:
+  aoc2022-day-22:
     main:               Main.hs
     source-dirs:        aoc2022_day_22
     ghc-options:
