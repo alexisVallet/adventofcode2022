@@ -108,24 +108,6 @@ precomputeBlizzards startBoard =
 
 countEmpty = runIdentity . sumAllP . R.map (\word -> if testTile word Empty then 1 else 0)
 
-wordToChar :: Word8 -> Char
-wordToChar word =
-    let tiles = [t | t <- [Empty .. RightB] , testTile word t]
-    in case tiles of
-        [t] -> case t of
-            Empty -> '.'
-            Wall -> '#'
-            UpB -> '^'
-            DownB -> 'v'
-            LeftB -> '<'
-            RightB -> '>'
-        _ -> last (show (length tiles))
-
-showBoard :: Board -> String
-showBoard board =
-    let Z :. _ :. w = extent board
-    in unlines $ chunksOf w $ wordToChar <$> R.toList board
-
 stackBoards :: [Board] -> Array D DIM3 Word8
 stackBoards boards =
     let shape = extent $ head boards
